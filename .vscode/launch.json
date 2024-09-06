@@ -1,0 +1,47 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Debug Nginx",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "/usr/local/nginx/sbin/nginx",  // Nginx 二进制文件路径
+        "args": ["-g", "daemon off;"],  // 防止 Nginx 以守护进程形式运行，保持在前台
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+          {
+            "description": "启用调试信息",
+            "text": "-enable-pretty-printing",
+            "ignoreFailures": true
+          }
+        ],
+        "preLaunchTask": "",
+        "miDebuggerPath": "/usr/bin/gdb",  // GDB 路径
+        "miDebuggerArgs": "-ex 'set follow-fork-mode child'", // 调试子进程
+        "logging": {
+          "engineLogging": true,
+          "trace": true,
+          "traceResponse": true
+        },
+        "serverReadyAction": {
+          "pattern": "listening on port ([0-9]+)",
+          "uriFormat": "http://localhost:%s",
+          "action": "openExternally"
+        },
+        "linux": {
+          "MIMode": "gdb"
+        },
+        "windows": {
+          "MIMode": "gdb"
+        },
+        "osx": {
+          "MIMode": "lldb"
+        }
+      }
+    ]
+  }
+  

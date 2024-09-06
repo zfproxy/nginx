@@ -4,35 +4,115 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/**
+ * @file ngx_regex.c
+ * @brief Nginx正则表达式处理模块
+ *
+ * 本文件实现了Nginx中正则表达式的处理功能，包括PCRE库的初始化、
+ * 正则表达式的编译和执行，以及相关的内存管理和配置处理。
+ *
+ * 主要功能:
+ * - 初始化PCRE库
+ * - 提供正则表达式编译和执行的接口
+ * - 管理正则表达式相关的内存分配
+ * - 处理PCRE JIT编译选项
+ * - 提供正则表达式模块的配置管理
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 
 
+/**
+ * @brief 正则表达式配置结构体
+ */
 typedef struct {
-    ngx_flag_t   pcre_jit;
-    ngx_list_t  *studies;
+    ngx_flag_t   pcre_jit;  /**< PCRE JIT编译标志 */
+    ngx_list_t  *studies;   /**< 正则表达式研究结果列表 */
 } ngx_regex_conf_t;
 
 
+/**
+ * @brief 初始化正则表达式内存分配
+ * @param pool 内存池指针
+ */
 static ngx_inline void ngx_regex_malloc_init(ngx_pool_t *pool);
+
+/**
+ * @brief 完成正则表达式内存分配
+ */
 static ngx_inline void ngx_regex_malloc_done(void);
 
 #if (NGX_PCRE2)
+/**
+ * @brief PCRE2内存分配函数
+ * @param size 要分配的内存大小
+ * @param data 用户数据
+ * @return 分配的内存指针
+ */
 static void * ngx_libc_cdecl ngx_regex_malloc(size_t size, void *data);
+
+/**
+ * @brief PCRE2内存释放函数
+ * @param p 要释放的内存指针
+ * @param data 用户数据
+ */
 static void ngx_libc_cdecl ngx_regex_free(void *p, void *data);
 #else
+/**
+ * @brief PCRE内存分配函数
+ * @param size 要分配的内存大小
+ * @return 分配的内存指针
+ */
 static void * ngx_libc_cdecl ngx_regex_malloc(size_t size);
+
+/**
+ * @brief PCRE内存释放函数
+ * @param p 要释放的内存指针
+ */
 static void ngx_libc_cdecl ngx_regex_free(void *p);
 #endif
+
+/**
+ * @brief 正则表达式清理函数
+ * @param data 清理数据
+ */
 static void ngx_regex_cleanup(void *data);
 
+/**
+ * @brief 正则表达式模块初始化函数
+ * @param cycle Nginx周期对象
+ * @return NGX_OK on success, NGX_ERROR on failure
+ */
 static ngx_int_t ngx_regex_module_init(ngx_cycle_t *cycle);
 
+/**
+ * @brief 创建正则表达式配置
+ * @param cycle Nginx周期对象
+ * @return 创建的配置对象指针
+ */
 static void *ngx_regex_create_conf(ngx_cycle_t *cycle);
+
+/**
+ * @brief 初始化正则表达式配置
+ * @param cycle Nginx周期对象
+ * @param conf 配置对象指针
+ * @return 配置初始化结果字符串
+ */
 static char *ngx_regex_init_conf(ngx_cycle_t *cycle, void *conf);
 
+/**
+ * @brief 处理PCRE JIT编译选项
+ * @param cf 配置对象指针
+ * @param post 后处理函数指针
+ * @param data 数据指针
+ * @return 处理结果字符串
+ */
 static char *ngx_regex_pcre_jit(ngx_conf_t *cf, void *post, void *data);
+
+/**
+ * @brief PCRE JIT编译选项的后处理函数
+ */
 static ngx_conf_post_t  ngx_regex_pcre_jit_post = { ngx_regex_pcre_jit };
 
 
@@ -72,13 +152,18 @@ ngx_module_t  ngx_regex_module = {
 };
 
 
-static ngx_pool_t             *ngx_regex_pool;
-static ngx_list_t             *ngx_regex_studies;
-static ngx_uint_t              ngx_regex_direct_alloc;
+static ngx_pool_t             *ngx_regex_pool;        /* 用于正则表达式操作的内存池 */
+static ngx_list_t             *ngx_regex_studies;     /* 存储已编译正则表达式的链表 */
+static ngx_uint_t              ngx_regex_direct_alloc; /* 标志位，指示是否直接分配内存 */
 
 #if (NGX_PCRE2)
+/* PCRE2编译上下文 */
 static pcre2_compile_context  *ngx_regex_compile_context;
+
+/* PCRE2匹配数据 */
 static pcre2_match_data       *ngx_regex_match_data;
+
+/* PCRE2匹配数据大小 */
 static ngx_uint_t              ngx_regex_match_data_size;
 #endif
 

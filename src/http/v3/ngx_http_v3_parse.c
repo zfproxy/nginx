@@ -4,33 +4,68 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_v3_parse.c
+ *
+ * 该文件实现了HTTP/3协议的解析功能。
+ *
+ * 支持的功能:
+ * 1. HTTP/3帧的解析
+ * 2. QPACK头部字段的解析
+ * 3. 变长整数(QUIC Variable-Length Integer)的解析
+ * 4. HTTP/3设置帧的解析
+ * 5. HTTP/3控制流的解析
+ * 6. QPACK动态表的解析
+ * 7. HTTP/3字面量字段的解析
+ * 8. HTTP/3前缀整数的解析
+ *
+ * 使用注意点:
+ * 1. 确保输入数据的完整性和正确性
+ * 2. 注意处理解析过程中可能出现的错误情况
+ * 3. 对于大型数据包，考虑使用分段解析以提高效率
+ * 4. 解析QPACK头部时，需要注意动态表的更新和引用
+ * 5. 处理变长整数时，注意可能的溢出情况
+ * 6. 在解析设置帧时，需要验证设置值的合法性
+ * 7. 解析控制流时，需要注意流的状态管理
+ * 8. 对于敏感数据，解析后应及时清理缓冲区
+ * 9. 遵循HTTP/3和QUIC协议规范进行解析
+ * 10. 考虑解析性能，避免不必要的内存分配和拷贝
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/* 定义一个宏，用于判断是否为HTTP/2帧类型 */
 #define ngx_http_v3_is_v2_frame(type)                                         \
     ((type) == 0x02 || (type) == 0x06 || (type) == 0x08 || (type) == 0x09)
 
 
+/* 声明用于本地解析的辅助函数 */
 static void ngx_http_v3_parse_start_local(ngx_buf_t *b, ngx_buf_t *loc,
     ngx_uint_t n);
 static void ngx_http_v3_parse_end_local(ngx_buf_t *b, ngx_buf_t *loc,
     ngx_uint_t *n);
 static ngx_int_t ngx_http_v3_parse_skip(ngx_buf_t *b, ngx_uint_t *length);
 
+/* 声明用于解析变长整数的函数 */
 static ngx_int_t ngx_http_v3_parse_varlen_int(ngx_connection_t *c,
     ngx_http_v3_parse_varlen_int_t *st, ngx_buf_t *b);
 static ngx_int_t ngx_http_v3_parse_prefix_int(ngx_connection_t *c,
     ngx_http_v3_parse_prefix_int_t *st, ngx_uint_t prefix, ngx_buf_t *b);
 
+/* 声明用于解析字段部分前缀的函数 */
 static ngx_int_t ngx_http_v3_parse_field_section_prefix(ngx_connection_t *c,
     ngx_http_v3_parse_field_section_prefix_t *st, ngx_buf_t *b);
+/* 声明用于解析字段表示的函数 */
 static ngx_int_t ngx_http_v3_parse_field_rep(ngx_connection_t *c,
     ngx_http_v3_parse_field_rep_t *st, ngx_uint_t base, ngx_buf_t *b);
+/* 声明用于解析字面量的函数 */
 static ngx_int_t ngx_http_v3_parse_literal(ngx_connection_t *c,
     ngx_http_v3_parse_literal_t *st, ngx_buf_t *b);
+/* 声明用于解析各种类型字段的函数 */
 static ngx_int_t ngx_http_v3_parse_field_ri(ngx_connection_t *c,
     ngx_http_v3_parse_field_t *st, ngx_buf_t *b);
 static ngx_int_t ngx_http_v3_parse_field_lri(ngx_connection_t *c,
@@ -42,21 +77,28 @@ static ngx_int_t ngx_http_v3_parse_field_pbi(ngx_connection_t *c,
 static ngx_int_t ngx_http_v3_parse_field_lpbi(ngx_connection_t *c,
     ngx_http_v3_parse_field_t *st, ngx_buf_t *b);
 
+/* 声明用于解析控制帧的函数 */
 static ngx_int_t ngx_http_v3_parse_control(ngx_connection_t *c,
     ngx_http_v3_parse_control_t *st, ngx_buf_t *b);
+/* 声明用于解析设置帧的函数 */
 static ngx_int_t ngx_http_v3_parse_settings(ngx_connection_t *c,
     ngx_http_v3_parse_settings_t *st, ngx_buf_t *b);
 
+/* 声明用于解析编码器指令的函数 */
 static ngx_int_t ngx_http_v3_parse_encoder(ngx_connection_t *c,
     ngx_http_v3_parse_encoder_t *st, ngx_buf_t *b);
+/* 声明用于解析插入新条目的函数 */
 static ngx_int_t ngx_http_v3_parse_field_inr(ngx_connection_t *c,
     ngx_http_v3_parse_field_t *st, ngx_buf_t *b);
+/* 声明用于解析插入字面量名称的函数 */
 static ngx_int_t ngx_http_v3_parse_field_iln(ngx_connection_t *c,
     ngx_http_v3_parse_field_t *st, ngx_buf_t *b);
 
+/* 声明用于解析解码器指令的函数 */
 static ngx_int_t ngx_http_v3_parse_decoder(ngx_connection_t *c,
     ngx_http_v3_parse_decoder_t *st, ngx_buf_t *b);
 
+/* 声明用于查找字段的函数 */
 static ngx_int_t ngx_http_v3_parse_lookup(ngx_connection_t *c,
     ngx_uint_t dynamic, ngx_uint_t index, ngx_str_t *name, ngx_str_t *value);
 

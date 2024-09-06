@@ -5,6 +5,25 @@
  */
 
 
+/*
+ * ngx_http_not_modified_filter_module.c
+ *
+ * 该模块实现了HTTP 304 Not Modified响应的处理功能。
+ * 用于优化客户端缓存，减少不必要的数据传输。
+ *
+ * 主要功能:
+ * - 检查客户端请求的If-Modified-Since和If-None-Match头
+ * - 比较请求头与服务器资源的Last-Modified和ETag
+ * - 符合条件时返回304 Not Modified响应
+ * - 支持弱ETag比较
+ *
+ * 支持的指令:
+ * 该模块不提供任何配置指令。
+ *
+ * 提供的变量:
+ * 该模块不提供任何变量。
+ */
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>

@@ -4,6 +4,36 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_smtp_module.c
+ *
+ * 该模块实现了SMTP协议的支持，用于Nginx邮件代理服务器。
+ *
+ * 支持的功能：
+ * 1. SMTP协议的基本命令处理
+ * 2. 多种认证方式：PLAIN、LOGIN、CRAM-MD5、EXTERNAL
+ * 3. SSL/TLS加密支持
+ * 4. 邮件代理和负载均衡
+ *
+ * 支持的指令：
+ * - smtp_auth: 设置允许的认证方法
+ * - smtp_capabilities: 自定义SMTP服务器能力
+ * - smtp_client_buffer: 设置客户端缓冲区大小
+ * - smtp_greeting_delay: 设置SMTP问候语延迟时间
+ *
+ * 相关变量：
+ * - $smtp_auth_method: 客户端使用的认证方法
+ * - $smtp_client: 客户端IP地址
+ * - $smtp_helo: 客户端发送的HELO/EHLO参数
+ *
+ * 使用注意点：
+ * 1. 确保正确配置SSL/TLS证书，以支持加密连接
+ * 2. 根据实际需求选择合适的认证方法，平衡安全性和兼容性
+ * 3. 合理设置缓冲区大小，以优化性能和资源使用
+ * 4. 注意SMTP问候语延迟可能影响某些客户端的兼容性
+ * 5. 在使用代理功能时，确保正确配置上游服务器
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

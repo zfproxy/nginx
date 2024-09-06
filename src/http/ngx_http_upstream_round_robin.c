@@ -4,23 +4,94 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/**
+ * @file ngx_http_upstream_round_robin.c
+ * @brief Nginx上游轮询负载均衡模块
+ *
+ * 本文件实现了Nginx的轮询负载均衡算法，用于在多个上游服务器之间分配请求。
+ *
+ * 支持的功能:
+ * 1. 基本轮询
+ * 2. 加权轮询
+ * 3. 服务器健康检查
+ * 4. 动态服务器管理
+ * 5. SSL会话保持（如果启用SSL）
+ *
+ * 支持的指令:
+ * - upstream: 定义上游服务器组
+ * - server: 在upstream块中定义具体的服务器
+ * - weight: 设置服务器权重
+ * - max_fails: 设置允许请求失败的次数
+ * - fail_timeout: 设置服务器被认为失败的时间
+ * - backup: 将服务器标记为备用服务器
+ *
+ * 支持的变量:
+ * - $upstream_addr: 处理请求的上游服务器地址
+ * - $upstream_response_time: 从上游服务器获得响应的时间
+ * - $upstream_status: 从上游服务器获得的HTTP响应状态
+ *
+ * 使用注意点:
+ * 1. 合理配置服务器权重以优化负载分配
+ * 2. 适当设置max_fails和fail_timeout以实现有效的故障转移
+ * 3. 考虑使用backup服务器来提高系统可用性
+ * 4. 在使用SSL时，注意配置正确的证书和密钥
+ * 5. 定期检查日志以监控负载均衡效果和服务器健康状况
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/**
+ * @brief 定义获取上游服务器尝试次数的宏
+ *
+ * 这个宏用于计算给定上游服务器组的总尝试次数。
+ * 它包括当前服务器组的尝试次数，以及如果存在下一个服务器组，则加上下一个组的尝试次数。
+ *
+ * @param p 指向 ngx_http_upstream_rr_peers_t 结构的指针
+ * @return 返回总的尝试次数
+ */
 #define ngx_http_upstream_tries(p) ((p)->tries                                \
                                     + ((p)->next ? (p)->next->tries : 0))
 
 
+/**
+ * @brief 从轮询负载均衡池中获取下一个可用的上游服务器
+ *
+ * 该函数实现了轮询算法的核心逻辑，用于从可用的上游服务器中选择下一个处理请求的服务器。
+ * 它考虑了服务器的权重、当前状态和连接数等因素来做出选择。
+ *
+ * @param rrp 指向轮询负载均衡相关数据的指针，类型为 ngx_http_upstream_rr_peer_data_t
+ * @return 返回选中的上游服务器，如果没有可用服务器则返回 NULL
+ */
 static ngx_http_upstream_rr_peer_t *ngx_http_upstream_get_peer(
     ngx_http_upstream_rr_peer_data_t *rrp);
 
 #if (NGX_HTTP_SSL)
 
+/**
+ * @brief 空的设置SSL会话函数
+ *
+ * 这个函数是一个空的实现，用于在不需要实际设置SSL会话时作为占位符。
+ * 它通常在SSL功能被禁用或不需要特殊SSL会话处理时使用。
+ *
+ * @param pc 指向对等连接结构的指针
+ * @param data 指向用户定义数据的指针（在这个空实现中未使用）
+ * @return 总是返回NGX_OK，表示"设置"成功
+ */
 static ngx_int_t ngx_http_upstream_empty_set_session(ngx_peer_connection_t *pc,
     void *data);
+/**
+ * @brief 空的保存SSL会话函数
+ *
+ * 这个函数是一个空的实现，用于在不需要实际保存SSL会话时作为占位符。
+ * 它通常在SSL功能被禁用或不需要特殊SSL会话处理时使用。
+ *
+ * @param pc 指向对等连接结构的指针
+ * @param data 指向用户定义数据的指针（在这个空实现中未使用）
+ */
 static void ngx_http_upstream_empty_save_session(ngx_peer_connection_t *pc,
     void *data);
 

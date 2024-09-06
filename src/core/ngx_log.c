@@ -5,27 +5,56 @@
  */
 
 
+/*
+ * ngx_log.c
+ *
+ * 本文件包含Nginx日志系统的核心功能实现。
+ *
+ * 主要功能:
+ * 1. 错误日志的配置（error_log指令）和初始化
+ * 2. 日志级别的设置和管理
+ * 3. 日志写入操作
+ * 4. 内存日志缓冲（仅在调试模式下）
+ * 5. 日志格式化和输出
+ *
+ * 使用注意:
+ * - 确保在使用任何日志函数前正确初始化日志系统
+ * - 合理设置日志级别，避免过多的日志输出影响性能
+ * - 在多线程环境下，注意日志写入的同步问题
+ * - 定期检查和轮换日志文件，防止日志文件过大
+ * - 在调试模式下，合理使用内存日志功能，及时清理内存日志缓冲
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 
 
+// 处理error_log指令的函数
 static char *ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
+// 设置日志级别的函数
 static char *ngx_log_set_levels(ngx_conf_t *cf, ngx_log_t *log);
+
+// 将新的日志配置插入到日志链表中的函数
 static void ngx_log_insert(ngx_log_t *log, ngx_log_t *new_log);
 
 
 #if (NGX_DEBUG)
 
+// 内存日志写入函数，将日志内容写入内存缓冲区
 static void ngx_log_memory_writer(ngx_log_t *log, ngx_uint_t level,
     u_char *buf, size_t len);
+
+// 内存日志清理函数，用于清理内存日志缓冲区
 static void ngx_log_memory_cleanup(void *data);
 
 
 typedef struct {
-    u_char        *start;
-    u_char        *end;
-    u_char        *pos;
-    ngx_atomic_t   written;
+    u_char        *start;    // 内存缓冲区的起始位置
+    u_char        *end;      // 内存缓冲区的结束位置
+    u_char        *pos;      // 当前写入位置
+    ngx_atomic_t   written;  // 已写入的字节数，使用原子操作以支持多线程
 } ngx_log_memory_buf_t;
 
 #endif
@@ -72,6 +101,17 @@ static ngx_open_file_t  ngx_log_file;
 ngx_uint_t              ngx_use_stderr = 1;
 
 
+// 定义一个静态数组，用于存储不同日志级别的字符串表示
+// 数组索引对应日志级别，从0开始
+// 0 - 未使用
+// 1 - emerg (紧急)
+// 2 - alert (警报)
+// 3 - crit (严重)
+// 4 - error (错误)
+// 5 - warn (警告)
+// 6 - notice (注意)
+// 7 - info (信息)
+// 8 - debug (调试)
 static ngx_str_t err_levels[] = {
     ngx_null_string,
     ngx_string("emerg"),
@@ -84,6 +124,8 @@ static ngx_str_t err_levels[] = {
     ngx_string("debug")
 };
 
+// 定义一个静态常量字符串数组，用于存储不同调试级别的名称
+// 这些名称对应于不同的调试模块或功能区域
 static const char *debug_levels[] = {
     "debug_core", "debug_alloc", "debug_mutex", "debug_event",
     "debug_http", "debug_mail", "debug_stream"

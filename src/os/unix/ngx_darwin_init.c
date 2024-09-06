@@ -4,6 +4,26 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_darwin_init.c
+ *
+ * 该文件实现了Nginx在Darwin(macOS)系统上的初始化功能。
+ *
+ * 支持的功能:
+ * 1. 获取系统信息(操作系统类型、版本等)
+ * 2. 获取硬件信息(CPU核心数、缓存行大小等)
+ * 3. 获取网络相关参数(TCP发送缓冲区大小等)
+ * 4. 初始化Darwin系统特定的I/O函数
+ * 5. 通过sysctl获取系统配置参数
+ *
+ * 使用注意点:
+ * 1. 该文件仅适用于Darwin(macOS)系统
+ * 2. 部分系统参数可能因macOS版本不同而变化
+ * 3. 获取的系统参数会影响Nginx的运行配置，请谨慎修改
+ * 4. 如果sysctl获取失败，可能会影响Nginx的性能优化
+ * 5. 在跨平台开发时，需要注意与其他操作系统初始化的差异
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

@@ -4,6 +4,30 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_process.c
+ *
+ * 该文件实现了Nginx的进程管理和信号处理功能。
+ *
+ * 支持的功能:
+ * 1. 进程创建和初始化
+ * 2. 信号处理机制
+ * 3. 进程间通信
+ * 4. 进程状态管理
+ * 5. 多进程模型支持
+ * 6. 优雅的进程退出机制
+ * 7. 进程重启和重新加载配置
+ *
+ * 使用注意点:
+ * 1. 信号处理函数应尽量简短，避免阻塞
+ * 2. 进程间通信需要考虑并发安全性
+ * 3. 修改进程相关代码时需格外谨慎，可能影响整个Nginx的稳定性
+ * 4. 进程数量应根据系统资源合理配置
+ * 5. 在容器化环境中运行时，需要注意信号处理的特殊性
+ * 6. 调试时可使用特定信号触发调试行为
+ * 7. 确保正确处理所有可能的进程状态转换
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -11,31 +35,40 @@
 #include <ngx_channel.h>
 
 
+// 定义信号处理结构体
 typedef struct {
-    int     signo;
-    char   *signame;
-    char   *name;
-    void  (*handler)(int signo, siginfo_t *siginfo, void *ucontext);
+    int     signo;    // 信号编号
+    char   *signame;  // 信号名称
+    char   *name;     // 信号对应的操作名称
+    void  (*handler)(int signo, siginfo_t *siginfo, void *ucontext);  // 信号处理函数
 } ngx_signal_t;
 
 
-
+// 声明静态函数
+// 执行新的进程
 static void ngx_execute_proc(ngx_cycle_t *cycle, void *data);
+
+// 信号处理函数
 static void ngx_signal_handler(int signo, siginfo_t *siginfo, void *ucontext);
+
+// 获取进程状态
 static void ngx_process_get_status(void);
+
+// 解锁互斥锁
 static void ngx_unlock_mutexes(ngx_pid_t pid);
 
 
-int              ngx_argc;
-char           **ngx_argv;
-char           **ngx_os_argv;
+int              ngx_argc;       // 命令行参数数量
+char           **ngx_argv;       // 命令行参数数组
+char           **ngx_os_argv;    // 操作系统相关的命令行参数数组
 
-ngx_int_t        ngx_process_slot;
-ngx_socket_t     ngx_channel;
-ngx_int_t        ngx_last_process;
-ngx_process_t    ngx_processes[NGX_MAX_PROCESSES];
+ngx_int_t        ngx_process_slot;  // 当前进程在进程表中的槽位
+ngx_socket_t     ngx_channel;       // 进程间通信的channel
+ngx_int_t        ngx_last_process;  // 最后一个进程的编号
+ngx_process_t    ngx_processes[NGX_MAX_PROCESSES];  // 进程表
 
 
+// 定义支持的信号及其处理函数
 ngx_signal_t  signals[] = {
     { ngx_signal_value(NGX_RECONFIGURE_SIGNAL),
       "SIG" ngx_value(NGX_RECONFIGURE_SIGNAL),
@@ -79,7 +112,7 @@ ngx_signal_t  signals[] = {
 
     { SIGPIPE, "SIGPIPE, SIG_IGN", "", NULL },
 
-    { 0, NULL, "", NULL }
+    { 0, NULL, "", NULL }  // 结束标记
 };
 
 

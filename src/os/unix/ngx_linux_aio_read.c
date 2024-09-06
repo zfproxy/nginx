@@ -4,16 +4,40 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_linux_aio_read.c
+ *
+ * 该文件实现了Nginx在Linux系统上的异步I/O文件读取功能。
+ *
+ * 支持的功能:
+ * 1. 异步文件读取初始化
+ * 2. 异步文件读取操作
+ * 3. Linux特定的io_submit系统调用封装
+ * 4. 异步I/O事件处理
+ *
+ * 使用注意点:
+ * 1. 仅支持Linux系统的异步I/O (AIO)
+ * 2. 依赖eventfd机制进行事件通知
+ * 3. 需要正确设置aio_context_t上下文
+ * 4. 异步读取可能会立即完成或延迟完成
+ * 5. 错误处理需要考虑EINPROGRESS等特殊情况
+ * 6. 内存对齐可能影响性能，建议使用内存池分配
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>
 
 
+// 声明外部变量ngx_eventfd,用于Linux的eventfd机制
 extern int            ngx_eventfd;
+
+// 声明外部变量ngx_aio_ctx,用于Linux的异步I/O上下文
 extern aio_context_t  ngx_aio_ctx;
 
 
+// 声明静态函数ngx_file_aio_event_handler,用于处理异步I/O事件
 static void ngx_file_aio_event_handler(ngx_event_t *ev);
 
 

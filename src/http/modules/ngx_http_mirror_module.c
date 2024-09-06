@@ -4,33 +4,114 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_mirror_module.c
+ *
+ * 该模块实现了HTTP请求镜像功能，允许将原始请求复制并发送到一个或多个镜像目标。
+ *
+ * 支持的功能：
+ * 1. 将请求镜像到多个目标
+ * 2. 可选择是否镜像请求体
+ * 3. 异步处理镜像请求，不影响原始请求的响应
+ *
+ * 支持的指令：
+ * - mirror：指定镜像目标URI
+ *   语法：mirror uri | off;
+ *   默认值：off
+ *   上下文：location, if in location
+ *
+ * - mirror_request_body：控制是否镜像请求体
+ *   语法：mirror_request_body on | off;
+ *   默认值：on
+ *   上下文：http, server, location
+ *
+ * 支持的变量：
+ * 该模块未引入新的变量
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/**
+ * @brief 镜像模块的位置配置结构
+ */
 typedef struct {
-    ngx_array_t  *mirror;
-    ngx_flag_t    request_body;
+    ngx_array_t  *mirror;      /* 镜像目标数组 */
+    ngx_flag_t    request_body; /* 是否镜像请求体的标志 */
 } ngx_http_mirror_loc_conf_t;
 
 
+/**
+ * @brief 镜像模块的请求上下文结构
+ */
 typedef struct {
-    ngx_int_t     status;
+    ngx_int_t     status;      /* 镜像请求的状态码 */
 } ngx_http_mirror_ctx_t;
 
 
+/**
+ * @brief 处理镜像请求的主函数
+ * @param r HTTP请求结构体
+ * @return ngx_int_t 处理结果
+ */
 static ngx_int_t ngx_http_mirror_handler(ngx_http_request_t *r);
+
+/**
+ * @brief 处理镜像请求体的函数
+ * @param r HTTP请求结构体
+ */
 static void ngx_http_mirror_body_handler(ngx_http_request_t *r);
+
+/**
+ * @brief 内部镜像请求处理函数
+ * @param r HTTP请求结构体
+ * @return ngx_int_t 处理结果
+ */
 static ngx_int_t ngx_http_mirror_handler_internal(ngx_http_request_t *r);
+
+/**
+ * @brief 创建镜像模块的位置配置
+ * @param cf 配置结构体
+ * @return void* 创建的位置配置
+ */
 static void *ngx_http_mirror_create_loc_conf(ngx_conf_t *cf);
+
+/**
+ * @brief 合并镜像模块的位置配置
+ * @param cf 配置结构体
+ * @param parent 父配置
+ * @param child 子配置
+ * @return char* 合并结果
+ */
 static char *ngx_http_mirror_merge_loc_conf(ngx_conf_t *cf, void *parent,
     void *child);
+
+/**
+ * @brief 处理mirror指令
+ * @param cf 配置结构体
+ * @param cmd 命令结构体
+ * @param conf 配置指针
+ * @return char* 处理结果
+ */
 static char *ngx_http_mirror(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
+/**
+ * @brief 初始化镜像模块
+ * @param cf 配置结构体
+ * @return ngx_int_t 初始化结果
+ */
 static ngx_int_t ngx_http_mirror_init(ngx_conf_t *cf);
 
 
+/**
+ * @brief 定义镜像模块的命令数组
+ *
+ * 这个数组包含了镜像模块支持的所有配置指令。
+ * 每个指令都有其特定的处理函数和配置。
+ */
 static ngx_command_t  ngx_http_mirror_commands[] = {
 
     { ngx_string("mirror"),

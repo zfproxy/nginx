@@ -4,6 +4,52 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_upstream_keepalive_module.c
+ *
+ * 该模块实现了上游连接的 keepalive 功能。
+ *
+ * 主要功能:
+ * - 维护空闲的上游连接池
+ * - 重用已建立的上游连接
+ * - 限制每个上游服务器的最大空闲连接数
+ * - 控制单个 keepalive 连接可处理的最大请求数
+ * - 管理 keepalive 连接的生命周期
+ *
+ * 支持的指令:
+ * - keepalive: 设置每个上游服务器的最大空闲 keepalive 连接数
+ *   语法: keepalive connections;
+ *   默认值: keepalive 0;
+ *   上下文: upstream
+ *
+ * - keepalive_requests: 设置通过一个 keepalive 连接可以处理的最大请求数
+ *   语法: keepalive_requests number;
+ *   默认值: keepalive_requests 1000;
+ *   上下文: upstream
+ *
+ * - keepalive_time: 设置 keepalive 连接可以在缓存中保持的最长时间
+ *   语法: keepalive_time time;
+ *   默认值: keepalive_time 1h;
+ *   上下文: upstream
+ *
+ * - keepalive_timeout: 设置空闲 keepalive 连接在关闭之前可以保持的最长时间
+ *   语法: keepalive_timeout timeout;
+ *   默认值: keepalive_timeout 60s;
+ *   上下文: upstream
+ *
+ * 提供的变量:
+ * 该模块不提供额外的变量
+ *
+ * 使用注意点:
+ * 1. 合理设置 keepalive 连接数，避免占用过多资源
+ * 2. 根据业务特点调整 keepalive_requests，平衡连接重用和负载均衡
+ * 3. 适当配置 keepalive_time 和 keepalive_timeout，避免连接长时间空闲
+ * 4. 注意与其他上游模块的兼容性，如负载均衡模块
+ * 5. 在高并发场景下，可能需要调整操作系统的最大文件描述符限制
+ * 6. 监控 keepalive 连接的使用情况，及时调整配置参数
+ * 7. 考虑上游服务器的并发处理能力，避免过度重用连接导致服务器压力过大
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -11,69 +57,89 @@
 
 
 typedef struct {
-    ngx_uint_t                         max_cached;
-    ngx_uint_t                         requests;
-    ngx_msec_t                         time;
-    ngx_msec_t                         timeout;
+    ngx_uint_t                         max_cached;    // 每个上游服务器的最大空闲keepalive连接数
+    ngx_uint_t                         requests;      // 通过一个keepalive连接可以处理的最大请求数
+    ngx_msec_t                         time;          // keepalive连接可以在缓存中保持的最长时间
+    ngx_msec_t                         timeout;       // 空闲keepalive连接在关闭之前可以保持的最长时间
 
-    ngx_queue_t                        cache;
-    ngx_queue_t                        free;
+    ngx_queue_t                        cache;         // 当前正在使用的keepalive连接队列
+    ngx_queue_t                        free;          // 空闲的keepalive连接队列
 
-    ngx_http_upstream_init_pt          original_init_upstream;
-    ngx_http_upstream_init_peer_pt     original_init_peer;
+    ngx_http_upstream_init_pt          original_init_upstream;  // 原始的上游初始化函数指针
+    ngx_http_upstream_init_peer_pt     original_init_peer;      // 原始的对等点初始化函数指针
 
 } ngx_http_upstream_keepalive_srv_conf_t;
 
-
+/**
+ * @brief 定义keepalive缓存连接的结构体
+ */
 typedef struct {
-    ngx_http_upstream_keepalive_srv_conf_t  *conf;
+    ngx_http_upstream_keepalive_srv_conf_t  *conf;  // 指向keepalive配置的指针
 
-    ngx_queue_t                        queue;
-    ngx_connection_t                  *connection;
+    ngx_queue_t                        queue;       // 用于将连接插入队列的节点
+    ngx_connection_t                  *connection;  // 指向实际连接的指针
 
-    socklen_t                          socklen;
-    ngx_sockaddr_t                     sockaddr;
+    socklen_t                          socklen;     // 套接字地址长度
+    ngx_sockaddr_t                     sockaddr;    // 套接字地址结构
 
 } ngx_http_upstream_keepalive_cache_t;
 
-
+/**
+ * @brief 定义keepalive对等连接数据结构
+ */
 typedef struct {
-    ngx_http_upstream_keepalive_srv_conf_t  *conf;
+    ngx_http_upstream_keepalive_srv_conf_t  *conf;  // 指向keepalive配置的指针
 
-    ngx_http_upstream_t               *upstream;
+    ngx_http_upstream_t               *upstream;    // 指向上游配置的指针
 
-    void                              *data;
+    void                              *data;        // 用于存储自定义数据的指针
 
-    ngx_event_get_peer_pt              original_get_peer;
-    ngx_event_free_peer_pt             original_free_peer;
+    ngx_event_get_peer_pt              original_get_peer;   // 原始的获取对等点函数指针
+    ngx_event_free_peer_pt             original_free_peer;  // 原始的释放对等点函数指针
 
 #if (NGX_HTTP_SSL)
-    ngx_event_set_peer_session_pt      original_set_session;
-    ngx_event_save_peer_session_pt     original_save_session;
+    ngx_event_set_peer_session_pt      original_set_session;   // 原始的设置SSL会话函数指针
+    ngx_event_save_peer_session_pt     original_save_session;  // 原始的保存SSL会话函数指针
 #endif
 
 } ngx_http_upstream_keepalive_peer_data_t;
 
 
+// 初始化keepalive对等连接
 static ngx_int_t ngx_http_upstream_init_keepalive_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us);
+
+// 获取一个keepalive对等连接
 static ngx_int_t ngx_http_upstream_get_keepalive_peer(ngx_peer_connection_t *pc,
     void *data);
+
+// 释放一个keepalive对等连接
 static void ngx_http_upstream_free_keepalive_peer(ngx_peer_connection_t *pc,
     void *data, ngx_uint_t state);
 
+// 空闲keepalive连接的虚拟处理函数
 static void ngx_http_upstream_keepalive_dummy_handler(ngx_event_t *ev);
+
+// 关闭keepalive连接的处理函数
 static void ngx_http_upstream_keepalive_close_handler(ngx_event_t *ev);
+
+// 关闭keepalive连接
 static void ngx_http_upstream_keepalive_close(ngx_connection_t *c);
 
 #if (NGX_HTTP_SSL)
+// 设置SSL会话
 static ngx_int_t ngx_http_upstream_keepalive_set_session(
     ngx_peer_connection_t *pc, void *data);
+
+// 保存SSL会话
 static void ngx_http_upstream_keepalive_save_session(ngx_peer_connection_t *pc,
     void *data);
 #endif
 
+// 创建keepalive模块配置
 static void *ngx_http_upstream_keepalive_create_conf(ngx_conf_t *cf);
+
+// 解析keepalive指令
 static char *ngx_http_upstream_keepalive(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 

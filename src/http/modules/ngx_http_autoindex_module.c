@@ -5,6 +5,38 @@
  */
 
 
+/*
+ * ngx_http_autoindex_module.c
+ *
+ * 该模块实现了Nginx的自动索引功能，用于生成目录列表。
+ *
+ * 支持的功能：
+ * 1. 生成指定目录的文件和子目录列表
+ * 2. 支持多种输出格式（HTML、JSON、XML等）
+ * 3. 显示文件/目录名、大小、最后修改时间等信息
+ * 4. 可配置是否使用本地时间
+ * 5. 可配置是否显示精确的文件大小
+ *
+ * 支持的指令：
+ * - autoindex on|off: 启用或禁用自动索引功能
+ * - autoindex_format html|xml|json|jsonp: 设置输出格式
+ * - autoindex_localtime on|off: 是否使用本地时间显示
+ * - autoindex_exact_size on|off: 是否显示精确的文件大小
+ *
+ * 支持的变量：
+ * - $autoindex: 当前是否启用了自动索引
+ *
+ * 使用注意点：
+ * 1. 启用自动索引可能会暴露敏感文件信息，请谨慎使用
+ * 2. 对于大型目录，生成索引可能会消耗较多资源，建议适当限制
+ * 3. 确保Nginx进程对目标目录有足够的读取权限
+ * 4. 考虑使用autoindex_format指令来选择最适合的输出格式
+ * 5. 在生产环境中，建议仅在必要的位置启用自动索引功能
+ */
+
+
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
@@ -23,58 +55,142 @@ typedef struct {
 #endif
 
 
+/**
+ * @brief 自动索引条目结构体
+ *
+ * 用于存储目录中每个文件或子目录的信息
+ */
 typedef struct {
-    ngx_str_t      name;
-    size_t         utf_len;
-    size_t         escape;
-    size_t         escape_html;
+    ngx_str_t      name;         /**< 文件或目录名 */
+    size_t         utf_len;      /**< UTF-8编码的名称长度 */
+    size_t         escape;       /**< 需要转义的字符数 */
+    size_t         escape_html;  /**< 需要HTML转义的字符数 */
 
-    unsigned       dir:1;
-    unsigned       file:1;
+    unsigned       dir:1;        /**< 是否为目录 */
+    unsigned       file:1;       /**< 是否为文件 */
 
-    time_t         mtime;
-    off_t          size;
+    time_t         mtime;        /**< 最后修改时间 */
+    off_t          size;         /**< 文件大小 */
 } ngx_http_autoindex_entry_t;
 
-
+/**
+ * @brief 自动索引模块的位置配置结构体
+ *
+ * 存储自动索引模块在特定位置的配置信息
+ */
 typedef struct {
-    ngx_flag_t     enable;
-    ngx_uint_t     format;
-    ngx_flag_t     localtime;
-    ngx_flag_t     exact_size;
+    ngx_flag_t     enable;       /**< 是否启用自动索引 */
+    ngx_uint_t     format;       /**< 输出格式 */
+    ngx_flag_t     localtime;    /**< 是否使用本地时间 */
+    ngx_flag_t     exact_size;   /**< 是否显示精确的文件大小 */
 } ngx_http_autoindex_loc_conf_t;
 
+/**
+ * @brief 自动索引输出格式枚举
+ */
+#define NGX_HTTP_AUTOINDEX_HTML         0  /**< HTML格式 */
+#define NGX_HTTP_AUTOINDEX_JSON         1  /**< JSON格式 */
+#define NGX_HTTP_AUTOINDEX_JSONP        2  /**< JSONP格式 */
+#define NGX_HTTP_AUTOINDEX_XML          3  /**< XML格式 */
 
-#define NGX_HTTP_AUTOINDEX_HTML         0
-#define NGX_HTTP_AUTOINDEX_JSON         1
-#define NGX_HTTP_AUTOINDEX_JSONP        2
-#define NGX_HTTP_AUTOINDEX_XML          3
-
+/**
+ * @brief 预分配的条目数量
+ */
 #define NGX_HTTP_AUTOINDEX_PREALLOCATE  50
 
+/**
+ * @brief 文件名显示的最大长度
+ */
 #define NGX_HTTP_AUTOINDEX_NAME_LEN     50
 
 
+/**
+ * @brief 生成HTML格式的自动索引页面
+ * @param r HTTP请求
+ * @param entries 目录条目数组
+ * @return 包含HTML内容的ngx_buf_t结构体指针
+ */
 static ngx_buf_t *ngx_http_autoindex_html(ngx_http_request_t *r,
     ngx_array_t *entries);
+
+/**
+ * @brief 生成JSON格式的自动索引数据
+ * @param r HTTP请求
+ * @param entries 目录条目数组
+ * @param callback JSONP回调函数名（可选）
+ * @return 包含JSON数据的ngx_buf_t结构体指针
+ */
 static ngx_buf_t *ngx_http_autoindex_json(ngx_http_request_t *r,
     ngx_array_t *entries, ngx_str_t *callback);
+
+/**
+ * @brief 验证JSONP回调函数名
+ * @param r HTTP请求
+ * @param callback 回调函数名
+ * @return NGX_OK表示验证通过，其他值表示失败
+ */
 static ngx_int_t ngx_http_autoindex_jsonp_callback(ngx_http_request_t *r,
     ngx_str_t *callback);
+
+/**
+ * @brief 生成XML格式的自动索引数据
+ * @param r HTTP请求
+ * @param entries 目录条目数组
+ * @return 包含XML数据的ngx_buf_t结构体指针
+ */
 static ngx_buf_t *ngx_http_autoindex_xml(ngx_http_request_t *r,
     ngx_array_t *entries);
 
+/**
+ * @brief 比较两个目录条目的排序函数
+ * @param one 第一个条目
+ * @param two 第二个条目
+ * @return 比较结果，用于qsort排序
+ */
 static int ngx_libc_cdecl ngx_http_autoindex_cmp_entries(const void *one,
     const void *two);
+
+/**
+ * @brief 处理自动索引过程中的错误
+ * @param r HTTP请求
+ * @param dir 目录句柄
+ * @param name 出错的文件或目录名
+ * @return NGX_OK或错误代码
+ */
 static ngx_int_t ngx_http_autoindex_error(ngx_http_request_t *r,
     ngx_dir_t *dir, ngx_str_t *name);
 
+/**
+ * @brief 自动索引模块初始化函数
+ * @param cf 配置上下文
+ * @return NGX_OK或错误代码
+ */
 static ngx_int_t ngx_http_autoindex_init(ngx_conf_t *cf);
+
+/**
+ * @brief 创建自动索引模块的location配置
+ * @param cf 配置上下文
+ * @return 新创建的配置结构体指针
+ */
 static void *ngx_http_autoindex_create_loc_conf(ngx_conf_t *cf);
+
+/**
+ * @brief 合并自动索引模块的location配置
+ * @param cf 配置上下文
+ * @param parent 父配置
+ * @param child 子配置
+ * @return NGX_CONF_OK或错误字符串
+ */
 static char *ngx_http_autoindex_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
 
 
+/**
+ * @brief 定义自动索引格式的枚举数组
+ *
+ * 该数组定义了自动索引支持的不同输出格式。
+ * 每个元素包含一个字符串表示的格式名称和对应的枚举值。
+ */
 static ngx_conf_enum_t  ngx_http_autoindex_format[] = {
     { ngx_string("html"), NGX_HTTP_AUTOINDEX_HTML },
     { ngx_string("json"), NGX_HTTP_AUTOINDEX_JSON },
@@ -149,6 +265,11 @@ ngx_module_t  ngx_http_autoindex_module = {
 };
 
 
+/* 
+ * ngx_http_autoindex_handler 函数的声明
+ * 这个函数是自动索引模块的主要处理函数
+ * 返回类型为 ngx_int_t，表示处理结果的状态码
+ */
 static ngx_int_t
 ngx_http_autoindex_handler(ngx_http_request_t *r)
 {

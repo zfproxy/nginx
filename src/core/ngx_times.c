@@ -4,63 +4,91 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_times.c - Nginx时间处理模块
+ *
+ * 本模块提供了Nginx的时间相关功能,包括:
+ * - 缓存当前时间,避免频繁系统调用
+ * - 提供多种格式的时间字符串
+ * - 支持毫秒级精度
+ * - 处理时区变更
+ *
+ * 主要功能:
+ * - ngx_time_init(): 初始化时间缓存
+ * - ngx_time_update(): 更新缓存的时间
+ * - ngx_time_sigsafe_update(): 信号安全的时间更新
+ * - ngx_time_lock()/ngx_time_unlock(): 时间更新锁
+ * - ngx_gmtime(), ngx_localtime(): GMT和本地时间转换
+ * - ngx_cached_http_time(), ngx_cached_http_log_time()等: 获取缓存的时间字符串
+ *
+ * 使用注意:
+ * 1. 读取时间无需加锁,但更新时间需要加锁
+ * 2. 信号处理函数中应使用ngx_time_sigsafe_update()
+ * 3. 时间更新间隔不应超过NGX_TIME_SLOTS秒,否则可能读取到过期数据
+ * 4. 模块初始化时需调用ngx_time_init()
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 
 
+/*
+ * 计算单调递增的时间值
+ * @param sec: 秒数
+ * @param msec: 毫秒数
+ * @return 单调递增的毫秒时间戳
+ */
 static ngx_msec_t ngx_monotonic_time(time_t sec, ngx_uint_t msec);
 
 
 /*
- * The time may be updated by signal handler or by several threads.
- * The time update operations are rare and require to hold the ngx_time_lock.
- * The time read operations are frequent, so they are lock-free and get time
- * values and strings from the current slot.  Thus thread may get the corrupted
- * values only if it is preempted while copying and then it is not scheduled
- * to run more than NGX_TIME_SLOTS seconds.
+ * 时间可能会被信号处理程序或多个线程更新。
+ * 时间更新操作很少见，需要持有ngx_time_lock锁。
+ * 时间读取操作很频繁，因此它们是无锁的，从当前槽获取时间值和字符串。
+ * 线程可能只有在复制时被抢占，然后在NGX_TIME_SLOTS秒内没有被调度运行时才会获得损坏的值。
  */
 
 #define NGX_TIME_SLOTS   64
 
-static ngx_uint_t        slot;
-static ngx_atomic_t      ngx_time_lock;
+static ngx_uint_t        slot;  // 当前时间槽索引
+static ngx_atomic_t      ngx_time_lock;  // 时间更新锁
 
-volatile ngx_msec_t      ngx_current_msec;
-volatile ngx_time_t     *ngx_cached_time;
-volatile ngx_str_t       ngx_cached_err_log_time;
-volatile ngx_str_t       ngx_cached_http_time;
-volatile ngx_str_t       ngx_cached_http_log_time;
-volatile ngx_str_t       ngx_cached_http_log_iso8601;
-volatile ngx_str_t       ngx_cached_syslog_time;
+volatile ngx_msec_t      ngx_current_msec;  // 当前毫秒时间戳
+volatile ngx_time_t     *ngx_cached_time;  // 缓存的时间结构指针
+volatile ngx_str_t       ngx_cached_err_log_time;  // 缓存的错误日志时间字符串
+volatile ngx_str_t       ngx_cached_http_time;  // 缓存的HTTP时间字符串
+volatile ngx_str_t       ngx_cached_http_log_time;  // 缓存的HTTP日志时间字符串
+volatile ngx_str_t       ngx_cached_http_log_iso8601;  // 缓存的ISO8601格式HTTP日志时间字符串
+volatile ngx_str_t       ngx_cached_syslog_time;  // 缓存的syslog时间字符串
 
 #if !(NGX_WIN32)
 
 /*
- * localtime() and localtime_r() are not Async-Signal-Safe functions, therefore,
- * they must not be called by a signal handler, so we use the cached
- * GMT offset value. Fortunately the value is changed only two times a year.
+ * localtime()和localtime_r()不是异步信号安全函数，因此
+ * 它们不能被信号处理程序调用，所以我们使用缓存的
+ * GMT偏移值。幸运的是，这个值每年只改变两次。
  */
 
-static ngx_int_t         cached_gmtoff;
+static ngx_int_t         cached_gmtoff;  // 缓存的GMT偏移值
 #endif
 
-static ngx_time_t        cached_time[NGX_TIME_SLOTS];
+static ngx_time_t        cached_time[NGX_TIME_SLOTS];  // 缓存的时间结构数组
 static u_char            cached_err_log_time[NGX_TIME_SLOTS]
-                                    [sizeof("1970/09/28 12:00:00")];
+                                    [sizeof("1970/09/28 12:00:00")];  // 缓存的错误日志时间字符串数组
 static u_char            cached_http_time[NGX_TIME_SLOTS]
-                                    [sizeof("Mon, 28 Sep 1970 06:00:00 GMT")];
+                                    [sizeof("Mon, 28 Sep 1970 06:00:00 GMT")];  // 缓存的HTTP时间字符串数组
 static u_char            cached_http_log_time[NGX_TIME_SLOTS]
-                                    [sizeof("28/Sep/1970:12:00:00 +0600")];
+                                    [sizeof("28/Sep/1970:12:00:00 +0600")];  // 缓存的HTTP日志时间字符串数组
 static u_char            cached_http_log_iso8601[NGX_TIME_SLOTS]
-                                    [sizeof("1970-09-28T12:00:00+06:00")];
+                                    [sizeof("1970-09-28T12:00:00+06:00")];  // 缓存的ISO8601格式HTTP日志时间字符串数组
 static u_char            cached_syslog_time[NGX_TIME_SLOTS]
-                                    [sizeof("Sep 28 12:00:00")];
+                                    [sizeof("Sep 28 12:00:00")];  // 缓存的syslog时间字符串数组
 
 
-static char  *week[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+static char  *week[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };  // 星期几的缩写数组
 static char  *months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+                           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };  // 月份的缩写数组
 
 void
 ngx_time_init(void)

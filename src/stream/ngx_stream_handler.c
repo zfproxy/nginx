@@ -4,6 +4,45 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_handler.c
+ *
+ * 此文件实现了Nginx stream模块的核心处理逻辑。
+ *
+ * 支持的功能:
+ * - TCP/UDP代理
+ * - SSL/TLS加密
+ * - 访问控制
+ * - 限流
+ * - 日志记录
+ *
+ * 支持的指令:
+ * - proxy_pass: 指定上游服务器
+ * - proxy_timeout: 设置代理超时时间
+ * - proxy_connect_timeout: 设置连接上游服务器的超时时间
+ * - ssl_preread: 启用SSL预读功能
+ * - access: 配置访问控制规则
+ * - limit_conn: 限制并发连接数
+ * - limit_rate: 限制传输速率
+ *
+ * 支持的变量:
+ * - $remote_addr: 客户端地址
+ * - $remote_port: 客户端端口
+ * - $server_addr: 服务器地址
+ * - $server_port: 服务器端口
+ * - $protocol: 使用的协议(TCP/UDP)
+ * - $status: 会话状态
+ * - $bytes_sent: 发送的字节数
+ * - $bytes_received: 接收的字节数
+ *
+ * 使用注意点:
+ * 1. 确保正确配置上游服务器地址和端口
+ * 2. 合理设置超时时间，避免连接长时间占用
+ * 3. 谨慎使用SSL预读功能，可能会影响性能
+ * 4. 根据实际需求配置访问控制和限流规则
+ * 5. 注意日志配置，避免日志文件过大
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

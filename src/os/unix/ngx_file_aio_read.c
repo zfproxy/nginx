@@ -4,6 +4,26 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_file_aio_read.c
+ *
+ * 该文件实现了Nginx的异步I/O文件读取功能。
+ *
+ * 支持的功能:
+ * 1. 异步文件读取初始化
+ * 2. 异步文件读取操作
+ * 3. 异步I/O事件处理
+ * 4. 获取异步读取结果
+ *
+ * 使用注意点:
+ * 1. 仅支持FreeBSD系统的文件AIO
+ * 2. 依赖kqueue事件机制
+ * 3. 异步读取可能会预读至少16K数据到VM缓存
+ * 4. 对于刚写入的数据,aio_read/aio_error可能返回EINPROGRESS
+ * 5. kqueue的EVFILT_AIO过滤器是水平触发的
+ * 6. aio_cancel()无法取消文件AIO,总是返回AIO_NOTCANCELED
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -28,11 +48,22 @@
  */
 
 
+// 声明外部变量ngx_kqueue，用于判断是否使用kqueue事件机制
 extern int  ngx_kqueue;
 
 
+// 获取异步I/O操作的结果
+// 参数:
+//   file: 文件对象
+//   aio: 异步I/O事件对象
+//   ev: 事件对象
+// 返回值: 读取的字节数或错误码
 static ssize_t ngx_file_aio_result(ngx_file_t *file, ngx_event_aio_t *aio,
     ngx_event_t *ev);
+
+// 异步I/O事件处理函数
+// 参数:
+//   ev: 触发的事件对象
 static void ngx_file_aio_event_handler(ngx_event_t *ev);
 
 

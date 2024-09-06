@@ -4,12 +4,35 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_linux_sendfile_chain.c
+ *
+ * 该文件实现了Nginx在Linux系统上使用sendfile()系统调用发送文件的功能。
+ *
+ * 支持的功能:
+ * 1. 使用sendfile()系统调用零拷贝发送文件
+ * 2. 处理大文件(>2GB)的发送
+ * 3. 支持多线程发送文件(如果启用NGX_THREADS)
+ * 4. 处理TCP_NODELAY选项
+ * 5. 链式发送多个文件和内存块
+ *
+ * 使用注意点:
+ * 1. 仅适用于Linux系统，其他系统可能需要不同的实现
+ * 2. 对于32位系统，文件偏移量有2GB限制
+ * 3. 即使在64位系统上，单次sendfile()调用也有最大传输量限制
+ * 4. 多线程模式下需要注意线程安全性
+ * 5. 大文件传输时要注意内存使用和性能优化
+ * 6. 错误处理需要考虑EAGAIN等特殊情况
+ * 7. 与TCP_NODELAY等套接字选项配合使用时需要特别注意
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>
 
 
+// 使用sendfile系统调用发送文件
 static ssize_t ngx_linux_sendfile(ngx_connection_t *c, ngx_buf_t *file,
     size_t size);
 
@@ -20,29 +43,32 @@ static ssize_t ngx_linux_sendfile(ngx_connection_t *c, ngx_buf_t *file,
 #error sendfile64() is required!
 #endif
 
+// 在线程中使用sendfile发送文件
 static ssize_t ngx_linux_sendfile_thread(ngx_connection_t *c, ngx_buf_t *file,
     size_t size);
+
+// 线程池中sendfile操作的处理函数
 static void ngx_linux_sendfile_thread_handler(void *data, ngx_log_t *log);
 #endif
 
 
 /*
- * On Linux up to 2.4.21 sendfile() (syscall #187) works with 32-bit
- * offsets only, and the including <sys/sendfile.h> breaks the compiling,
- * if off_t is 64 bit wide.  So we use own sendfile() definition, where offset
- * parameter is int32_t, and use sendfile() for the file parts below 2G only,
- * see src/os/unix/ngx_linux_config.h
+ * Linux 2.4.21之前的版本中，sendfile()系统调用(系统调用号187)只能处理32位偏移量。
+ * 如果off_t是64位的，包含<sys/sendfile.h>会导致编译错误。
+ * 因此我们使用自定义的sendfile()定义，其中offset参数是int32_t类型，
+ * 并且只对小于2G的文件部分使用sendfile()。
+ * 详见src/os/unix/ngx_linux_config.h
  *
- * Linux 2.4.21 has the new sendfile64() syscall #239.
+ * Linux 2.4.21引入了新的sendfile64()系统调用(系统调用号239)。
  *
- * On Linux up to 2.6.16 sendfile() does not allow to pass the count parameter
- * more than 2G-1 bytes even on 64-bit platforms: it returns EINVAL,
- * so we limit it to 2G-1 bytes.
+ * 在Linux 2.6.16及之前的版本中，即使在64位平台上，sendfile()也不允许count参数超过2G-1字节，
+ * 否则会返回EINVAL错误。因此我们将其限制为2G-1字节。
  *
- * On Linux 2.6.16 and later, sendfile() silently limits the count parameter
- * to 2G minus the page size, even on 64-bit platforms.
+ * 在Linux 2.6.16及之后的版本中，sendfile()会默默地将count参数限制为2G减去页面大小，
+ * 即使在64位平台上也是如此。
  */
 
+// 定义sendfile()可以处理的最大文件大小为2G-1字节
 #define NGX_SENDFILE_MAXSIZE  2147483647L
 
 

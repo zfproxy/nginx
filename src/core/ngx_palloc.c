@@ -4,6 +4,34 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_palloc.c
+ *
+ * 该文件实现了Nginx的内存池分配功能。
+ *
+ * 支持的功能:
+ * 1. 创建内存池 (ngx_create_pool)
+ * 2. 销毁内存池 (ngx_destroy_pool)
+ * 3. 重置内存池 (ngx_reset_pool)
+ * 4. 从内存池分配内存 (ngx_palloc, ngx_pnalloc, ngx_pcalloc)
+ * 5. 分配大块内存 (ngx_palloc_large)
+ * 6. 对齐内存分配 (ngx_palign)
+ * 7. 添加清理回调函数 (ngx_pool_cleanup_add)
+ *
+ * 使用注意点:
+ * 1. 创建内存池时需要指定合适的大小，过大会浪费内存，过小会频繁分配新块
+ * 2. 销毁内存池时会自动调用所有注册的清理函数
+ * 3. 重置内存池会释放大块内存，但保留内存池结构
+ * 4. 频繁的小内存分配应使用ngx_palloc，大块内存使用ngx_palloc_large
+ * 5. ngx_pcalloc会将分配的内存初始化为0
+ * 6. 内存对齐可能会造成一定的内存浪费，使用时需权衡
+ * 7. 清理函数的添加和执行顺序是相反的，后添加的先执行
+ * 8. 内存池不是线程安全的，多线程环境下需要额外的同步措施
+ * 9. 避免在内存池中分配过多的大块内存，可能影响性能
+ * 10. 注意处理内存分配失败的情况，特别是在低内存环境中
+ */
+
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

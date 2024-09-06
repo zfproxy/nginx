@@ -4,26 +4,83 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_return_module.c
+ *
+ * 该模块实现了Nginx流模块的返回功能。
+ *
+ * 支持的功能：
+ * 1. 向客户端返回指定的文本内容
+ * 2. 支持变量和复杂表达式作为返回内容
+ * 3. 可以在会话建立时立即返回内容并关闭连接
+ *
+ * 支持的指令：
+ * - return: 设置要返回的内容
+ *   语法: return text;
+ *   上下文: server
+ *
+ * 支持的变量：
+ * 该模块不定义特定变量，但可以在return指令中使用任何有效的Nginx变量
+ *
+ * 使用注意点：
+ * 1. return指令会导致会话立即终止，后续处理将不再执行
+ * 2. 返回的内容支持变量插值，可以动态生成
+ * 3. 大量使用复杂的返回内容可能会影响性能
+ * 4. 返回的内容会直接发送给客户端，注意避免敏感信息泄露
+ * 5. 如果返回内容较大，注意设置适当的缓冲区大小
+ * 6. 可以结合其他模块（如access模块）使用，实现条件返回
+ * 7. 在SSL/TLS连接中使用时，确保在握手完成后再返回内容
+ * 8. 返回的内容不会自动添加换行符，如需换行请手动添加
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
 
+/**
+ * @brief return 指令的服务器配置结构体
+ */
 typedef struct {
-    ngx_stream_complex_value_t   text;
+    ngx_stream_complex_value_t   text;  /* 存储要返回的文本内容 */
 } ngx_stream_return_srv_conf_t;
 
 
+/**
+ * @brief return 模块的上下文结构体
+ */
 typedef struct {
-    ngx_chain_t                 *out;
+    ngx_chain_t                 *out;  /* 存储输出数据的链表 */
 } ngx_stream_return_ctx_t;
 
 
+/**
+ * @brief return 指令的主处理函数
+ * @param s 流会话结构体
+ */
 static void ngx_stream_return_handler(ngx_stream_session_t *s);
+
+/**
+ * @brief return 指令的写事件处理函数
+ * @param ev 事件结构体
+ */
 static void ngx_stream_return_write_handler(ngx_event_t *ev);
 
+/**
+ * @brief 创建 return 指令的服务器配置
+ * @param cf 配置结构体
+ * @return 创建的配置结构体指针
+ */
 static void *ngx_stream_return_create_srv_conf(ngx_conf_t *cf);
+
+/**
+ * @brief return 指令的解析函数
+ * @param cf 配置结构体
+ * @param cmd 命令结构体
+ * @param conf 配置指针
+ * @return 解析结果
+ */
 static char *ngx_stream_return(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 

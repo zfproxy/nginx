@@ -4,6 +4,31 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_process_cycle.c
+ *
+ * 该文件实现了Nginx的进程管理和生命周期控制功能。
+ *
+ * 支持的功能:
+ * 1. 主进程(master process)的初始化和管理
+ * 2. 工作进程(worker process)的创建、初始化和管理
+ * 3. 缓存管理进程的创建和管理
+ * 4. 进程间通信和信号处理
+ * 5. 优雅的进程启动、重启和退出机制
+ * 6. 子进程状态监控和回收
+ * 7. 配置重载和二进制升级支持
+ *
+ * 使用注意点:
+ * 1. 进程管理是Nginx的核心功能，修改时需格外谨慎
+ * 2. 信号处理函数应尽可能简单，避免阻塞或执行复杂操作
+ * 3. 工作进程数量应根据服务器硬件配置合理设置
+ * 4. 在多进程模式下需注意共享内存和文件描述符的正确传递
+ * 5. 日志记录应考虑多进程并发写入的情况
+ * 6. 配置重载和二进制升级时需确保平滑过渡，不影响已有连接
+ * 7. 调试时可使用特定信号(如SIGWINCH)触发调试行为
+ * 8. 在容器化环境中运行时，需要注意信号处理的特殊性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -11,63 +36,78 @@
 #include <ngx_channel.h>
 
 
+// 启动工作进程
 static void ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n,
     ngx_int_t type);
+// 启动缓存管理进程
 static void ngx_start_cache_manager_processes(ngx_cycle_t *cycle,
     ngx_uint_t respawn);
+// 传递打开的通道
 static void ngx_pass_open_channel(ngx_cycle_t *cycle);
+// 向工作进程发送信号
 static void ngx_signal_worker_processes(ngx_cycle_t *cycle, int signo);
+// 回收子进程
 static ngx_uint_t ngx_reap_children(ngx_cycle_t *cycle);
+// 主进程退出
 static void ngx_master_process_exit(ngx_cycle_t *cycle);
+// 工作进程循环
 static void ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data);
+// 工作进程初始化
 static void ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker);
+// 工作进程退出
 static void ngx_worker_process_exit(ngx_cycle_t *cycle);
+// 通道处理器
 static void ngx_channel_handler(ngx_event_t *ev);
+// 缓存管理进程循环
 static void ngx_cache_manager_process_cycle(ngx_cycle_t *cycle, void *data);
+// 缓存管理进程处理器
 static void ngx_cache_manager_process_handler(ngx_event_t *ev);
+// 缓存加载进程处理器
 static void ngx_cache_loader_process_handler(ngx_event_t *ev);
 
 
-ngx_uint_t    ngx_process;
-ngx_uint_t    ngx_worker;
-ngx_pid_t     ngx_pid;
-ngx_pid_t     ngx_parent;
+ngx_uint_t    ngx_process;    // 当前进程类型
+ngx_uint_t    ngx_worker;     // 工作进程编号
+ngx_pid_t     ngx_pid;        // 当前进程ID
+ngx_pid_t     ngx_parent;     // 父进程ID
 
-sig_atomic_t  ngx_reap;
-sig_atomic_t  ngx_sigio;
-sig_atomic_t  ngx_sigalrm;
-sig_atomic_t  ngx_terminate;
-sig_atomic_t  ngx_quit;
-sig_atomic_t  ngx_debug_quit;
-ngx_uint_t    ngx_exiting;
-sig_atomic_t  ngx_reconfigure;
-sig_atomic_t  ngx_reopen;
+sig_atomic_t  ngx_reap;       // 子进程结束标志
+sig_atomic_t  ngx_sigio;      // SIGIO信号标志
+sig_atomic_t  ngx_sigalrm;    // SIGALRM信号标志
+sig_atomic_t  ngx_terminate;  // 终止标志
+sig_atomic_t  ngx_quit;       // 优雅退出标志
+sig_atomic_t  ngx_debug_quit; // 调试退出标志
+ngx_uint_t    ngx_exiting;    // 正在退出标志
+sig_atomic_t  ngx_reconfigure;// 重新加载配置标志
+sig_atomic_t  ngx_reopen;     // 重新打开文件标志
 
-sig_atomic_t  ngx_change_binary;
-ngx_pid_t     ngx_new_binary;
-ngx_uint_t    ngx_inherited;
-ngx_uint_t    ngx_daemonized;
+sig_atomic_t  ngx_change_binary; // 切换二进制文件标志
+ngx_pid_t     ngx_new_binary;    // 新二进制文件进程ID
+ngx_uint_t    ngx_inherited;     // 继承标志
+ngx_uint_t    ngx_daemonized;    // 守护进程标志
 
-sig_atomic_t  ngx_noaccept;
-ngx_uint_t    ngx_noaccepting;
-ngx_uint_t    ngx_restart;
+sig_atomic_t  ngx_noaccept;     // 不接受新连接标志
+ngx_uint_t    ngx_noaccepting;  // 正在停止接受新连接标志
+ngx_uint_t    ngx_restart;      // 重启标志
 
 
 static u_char  master_process[] = "master process";
 
 
+// 缓存管理器上下文
 static ngx_cache_manager_ctx_t  ngx_cache_manager_ctx = {
     ngx_cache_manager_process_handler, "cache manager process", 0
 };
 
+// 缓存加载器上下文
 static ngx_cache_manager_ctx_t  ngx_cache_loader_ctx = {
     ngx_cache_loader_process_handler, "cache loader process", 60000
 };
 
 
-static ngx_cycle_t      ngx_exit_cycle;
-static ngx_log_t        ngx_exit_log;
-static ngx_open_file_t  ngx_exit_log_file;
+static ngx_cycle_t      ngx_exit_cycle;    // 退出时的cycle
+static ngx_log_t        ngx_exit_log;      // 退出时的日志
+static ngx_open_file_t  ngx_exit_log_file; // 退出时的日志文件
 
 
 void

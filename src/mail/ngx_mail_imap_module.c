@@ -4,6 +4,40 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_imap_module.c
+ *
+ * 该模块实现了Nginx邮件代理服务器的IMAP协议支持。
+ *
+ * 支持的功能:
+ * 1. IMAP4和IMAP4rev1协议
+ * 2. UIDPLUS扩展
+ * 3. 多种认证方式(PLAIN, LOGIN, CRAM-MD5, EXTERNAL)
+ * 4. SSL/TLS加密支持
+ * 5. 自定义能力声明
+ *
+ * 支持的指令:
+ * - imap_capabilities: 设置IMAP服务器能力
+ * - imap_auth: 配置允许的认证方法
+ * - imap_client_buffer: 设置客户端缓冲区大小
+ *
+ * 支持的变量:
+ * - $imap_capability: 当前IMAP会话的能力列表
+ * - $imap_auth_method: 客户端选择的认证方法
+ *
+ * 使用注意点:
+ * 1. 正确配置认证方法，确保安全性
+ * 2. 合理设置客户端缓冲区大小，平衡性能和内存使用
+ * 3. 自定义能力时注意与客户端的兼容性
+ * 4. 使用SSL/TLS时确保正确配置证书
+ * 5. 监控日志，及时发现潜在的协议问题
+ * 6. 考虑启用UIDPLUS以提高邮件客户端的效率
+ * 7. 注意与其他邮件模块(如POP3、SMTP)的配合使用
+ * 8. 定期更新以支持最新的IMAP协议特性
+ * 9. 在高并发环境下，注意调整worker进程数和连接数限制
+ * 10. 考虑使用反垃圾邮件和防病毒插件增强安全性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

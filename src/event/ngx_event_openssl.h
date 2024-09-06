@@ -93,6 +93,12 @@ struct ngx_ssl_s {
 };
 
 
+/**
+ * @brief SSL连接结构体
+ *
+ * 这个结构体用于表示一个SSL连接的相关信息。
+ * 它包含了SSL连接对象、会话上下文、连接处理函数等。
+ */
 struct ngx_ssl_connection_s {
     ngx_ssl_conn_t             *connection;
     SSL_CTX                    *session_ctx;
@@ -131,12 +137,47 @@ struct ngx_ssl_connection_s {
 };
 
 
+/**
+ * @brief 定义SSL会话缓存禁用标志
+ *
+ * 这个宏定义表示SSL会话缓存被禁用。
+ * 当配置使用这个值时，表示不使用任何形式的SSL会话缓存。
+ */
 #define NGX_SSL_NO_SCACHE            -2
+/**
+ * @brief 定义SSL会话缓存无缓存标志
+ *
+ * 这个宏定义表示SSL会话缓存为无缓存模式。
+ * 当配置使用这个值时，表示不使用任何形式的SSL会话缓存，
+ * 并且明确指定为无缓存模式，与NGX_SSL_NO_SCACHE略有不同。
+ */
 #define NGX_SSL_NONE_SCACHE          -3
+/**
+ * @brief 定义SSL会话缓存不使用内置缓存标志
+ *
+ * 这个宏定义表示SSL会话缓存不使用内置的缓存机制。
+ * 当配置使用这个值时，表示禁用Nginx内置的SSL会话缓存功能，
+ * 可能会使用外部的缓存机制或完全不使用会话缓存。
+ */
 #define NGX_SSL_NO_BUILTIN_SCACHE    -4
+/**
+ * @brief 定义SSL会话缓存默认内置缓存标志
+ *
+ * 这个宏定义表示使用SSL会话的默认内置缓存机制。
+ * 当配置使用这个值时，表示使用Nginx默认提供的内置SSL会话缓存功能。
+ * 这通常是最常用的配置选项，提供了良好的性能和易用性。
+ */
 #define NGX_SSL_DFLT_BUILTIN_SCACHE  -5
 
 
+/**
+ * @brief 定义SSL会话的最大大小
+ *
+ * 这个宏定义了SSL会话的最大允许大小，单位为字节。
+ * 它限制了单个SSL会话可以占用的最大内存空间，
+ * 有助于防止潜在的内存耗尽攻击，并确保资源的合理分配。
+ * 当前设置为4096字节（4KB），这通常足以容纳大多数SSL会话信息。
+ */
 #define NGX_SSL_MAX_SESSION_SIZE  4096
 
 typedef struct ngx_ssl_sess_id_s  ngx_ssl_sess_id_t;

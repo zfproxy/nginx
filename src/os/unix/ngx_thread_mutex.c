@@ -4,6 +4,29 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_thread_mutex.c
+ *
+ * 该文件实现了Nginx在Unix系统上的线程互斥锁操作功能。
+ *
+ * 支持的功能:
+ * 1. 创建线程互斥锁 (ngx_thread_mutex_create)
+ * 2. 销毁线程互斥锁 (ngx_thread_mutex_destroy)
+ * 3. 锁定互斥锁 (ngx_thread_mutex_lock)
+ * 4. 尝试锁定互斥锁 (ngx_thread_mutex_trylock)
+ * 5. 解锁互斥锁 (ngx_thread_mutex_unlock)
+ *
+ * 使用注意点:
+ * 1. 互斥锁的创建和销毁应成对出现，避免资源泄漏
+ * 2. 在多线程环境中使用时需注意死锁问题
+ * 3. 不同的互斥锁类型(NORMAL, ERRORCHECK, RECURSIVE, ADAPTIVE)有不同的特性和性能表现
+ * 4. 错误处理应当合理，避免因互斥锁操作失败导致程序异常
+ * 5. 在高并发环境下，互斥锁的使用可能会成为性能瓶颈，需要合理设计以减少锁竞争
+ * 6. 对于自旋锁(ADAPTIVE)类型，需要根据实际情况调整自旋次数
+ * 7. 在不同的操作系统上，互斥锁的具体实现可能有所不同，使用时需注意兼容性
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 

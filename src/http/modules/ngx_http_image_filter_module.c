@@ -4,6 +4,29 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_image_filter_module.c
+ *
+ * 该模块提供图像处理功能，支持以下操作：
+ * - 图像大小调整
+ * - 图像裁剪
+ * - 图像旋转
+ * - 图像格式转换
+ * - 图像质量调整
+ *
+ * 支持的指令：
+ * - image_filter: 设置图像处理操作
+ * - image_filter_buffer: 设置图像处理缓冲区大小
+ * - image_filter_jpeg_quality: 设置JPEG图像质量
+ * - image_filter_webp_quality: 设置WebP图像质量
+ * - image_filter_sharpen: 设置图像锐化参数
+ * - image_filter_transparency: 控制透明度处理
+ * - image_filter_interlace: 控制图像交错处理
+ *
+ * 支持的变量：
+ * - $image_width: 处理后图像宽度
+ * - $image_height: 处理后图像高度
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

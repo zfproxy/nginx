@@ -4,15 +4,59 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_write_filter_module.c
+ *
+ * 该模块实现了Nginx的HTTP写入过滤器功能，负责将响应数据写入客户端连接。
+ *
+ * 支持的功能:
+ * 1. 高效的响应数据写入
+ * 2. 支持分块传输编码
+ * 3. 处理keep-alive连接
+ * 4. 支持异步I/O操作
+ * 5. 缓冲区管理和优化
+ * 6. 处理响应头和响应体的写入
+ *
+ * 支持的指令:
+ * 该模块不直接提供可配置的指令，而是作为Nginx核心功能的一部分自动运行。
+ *
+ * 相关变量:
+ * 本模块不直接提供可在配置中使用的变量。
+ *
+ * 使用注意点:
+ * 1. 写入过滤器是输出过滤器链中的最后一环，直接影响响应的发送效率
+ * 2. 在处理大文件或流媒体时，需要注意内存使用和缓冲区配置
+ * 3. 对于高并发场景，可能需要调整相关的缓冲区设置
+ * 4. 写入过滤器的性能直接影响整个服务器的吞吐量
+ * 5. 在调试性能问题时，可能需要关注此模块的行为
+ * 6. 与SSL模块配合使用时，需要考虑加密操作对写入性能的影响
+ * 7. 在使用异步I/O时，需要确保系统和硬件支持
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/**
+ * @brief 初始化HTTP写入过滤器
+ *
+ * 该函数用于初始化HTTP写入过滤器模块。
+ * 它在Nginx配置阶段被调用，用于设置写入过滤器的初始状态和配置。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @return 返回NGX_OK表示初始化成功，否则返回错误码
+ */
 static ngx_int_t ngx_http_write_filter_init(ngx_conf_t *cf);
 
 
+/**
+ * @brief HTTP写入过滤器模块的上下文结构
+ *
+ * 该结构定义了HTTP写入过滤器模块的各个回调函数和配置处理函数。
+ * 它是Nginx模块系统的一个重要组成部分，用于指定模块在不同阶段的行为。
+ */
 static ngx_http_module_t  ngx_http_write_filter_module_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_http_write_filter_init,            /* postconfiguration */
@@ -28,6 +72,13 @@ static ngx_http_module_t  ngx_http_write_filter_module_ctx = {
 };
 
 
+/**
+ * @brief HTTP写入过滤器模块定义
+ *
+ * 该结构定义了HTTP写入过滤器模块的基本信息和行为。
+ * 它包含了模块的上下文、指令集、类型等重要信息，是Nginx模块系统的核心组成部分。
+ * ngx_http_write_filter_module负责处理HTTP响应的写入操作，是输出过滤器链中的一个重要环节。
+ */
 ngx_module_t  ngx_http_write_filter_module = {
     NGX_MODULE_V1,
     &ngx_http_write_filter_module_ctx,     /* module context */

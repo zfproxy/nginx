@@ -4,6 +4,45 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_mp4_module.c
+ *
+ * 该模块实现了MP4文件的伪流媒体功能。
+ * 允许从任意时间点开始播放MP4文件，无需完整下载。
+ *
+ * 主要功能:
+ * - 解析MP4文件结构
+ * - 支持从指定时间点开始播放
+ * - 动态调整MP4文件头信息
+ * - 支持关键帧对齐
+ * - 处理MP4文件的seek请求
+ *
+ * 支持的指令:
+ * - mp4: 启用或禁用MP4模块处理
+ *   语法: mp4 on|off;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * - mp4_buffer_size: 设置读取MP4文件的缓冲区大小
+ *   语法: mp4_buffer_size size;
+ *   默认值: 512k
+ *   上下文: http, server, location
+ * 
+ * - mp4_max_buffer_size: 设置最大缓冲区大小
+ *   语法: mp4_max_buffer_size size;
+ *   默认值: 10m
+ *   上下文: http, server, location
+ *
+ * - mp4_start_key_frame: 是否从关键帧开始播放
+ *   语法: mp4_start_key_frame on|off;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * 提供的变量:
+ * 该模块不提供任何变量。
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>

@@ -4,6 +4,50 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_ssl_module.c
+ *
+ * 该模块实现了邮件服务器的SSL/TLS加密功能。
+ *
+ * 支持的功能:
+ * - SSL/TLS加密连接
+ * - STARTTLS支持
+ * - 会话缓存
+ * - 证书链配置
+ * - OCSP stapling
+ * - SNI (Server Name Indication)
+ * - ALPN (Application-Layer Protocol Negotiation)
+ *
+ * 支持的指令:
+ * - ssl: 启用SSL/TLS支持
+ * - ssl_certificate: 设置SSL证书文件路径
+ * - ssl_certificate_key: 设置SSL证书私钥文件路径
+ * - ssl_protocols: 设置支持的SSL/TLS协议版本
+ * - ssl_ciphers: 设置加密算法套件
+ * - ssl_prefer_server_ciphers: 优先使用服务器端加密算法
+ * - ssl_session_cache: 配置SSL会话缓存
+ * - ssl_session_timeout: 设置SSL会话超时时间
+ * - ssl_password_file: 设置包含私钥密码的文件路径
+ * - ssl_stapling: 启用OCSP stapling
+ * - ssl_trusted_certificate: 设置用于验证客户端证书的CA证书文件
+ *
+ * 相关变量:
+ * - $ssl_protocol: 当前使用的SSL/TLS协议版本
+ * - $ssl_cipher: 当前使用的加密算法
+ * - $ssl_client_verify: 客户端证书验证结果
+ * - $ssl_client_s_dn: 客户端证书主题
+ * - $ssl_server_name: 客户端请求的服务器名称(SNI)
+ *
+ * 使用注意点:
+ * 1. 确保正确配置SSL证书和私钥文件路径
+ * 2. 根据安全需求选择适当的SSL/TLS协议版本和加密算法
+ * 3. 合理配置会话缓存以提高性能
+ * 4. 定期更新证书和私钥，确保安全性
+ * 5. 在启用OCSP stapling时，确保有可靠的OCSP响应源
+ * 6. 使用ssl_prefer_server_ciphers指令可以增强安全性
+ * 7. 注意监控SSL/TLS连接的性能和资源消耗
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

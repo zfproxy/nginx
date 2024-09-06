@@ -4,207 +4,322 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_fastcgi_module.c
+ *
+ * 该模块实现了Nginx与FastCGI服务器之间的通信。
+ *
+ * 支持的功能：
+ * 1. 将请求转发给FastCGI服务器处理
+ * 2. 设置FastCGI参数
+ * 3. 缓存FastCGI响应
+ * 4. 错误处理和日志记录
+ *
+ * 支持的指令：
+ * - fastcgi_pass: 指定FastCGI服务器地址
+ * - fastcgi_index: 设置默认的FastCGI脚本文件名
+ * - fastcgi_param: 设置传递给FastCGI服务器的参数
+ * - fastcgi_cache: 启用FastCGI响应缓存
+ * - fastcgi_cache_key: 设置缓存键
+ * - fastcgi_cache_use_stale: 配置过期缓存的使用条件
+ * - fastcgi_keep_conn: 保持与FastCGI服务器的连接
+ * - fastcgi_catch_stderr: 捕获并处理FastCGI服务器的标准错误输出
+ *
+ * 支持的变量：
+ * - $fastcgi_script_name: FastCGI脚本名称
+ * - $fastcgi_path_info: PATH_INFO参数值
+ * - $fastcgi_script_filename: 完整的FastCGI脚本文件路径
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/**
+ * @brief FastCGI模块的主配置结构
+ */
 typedef struct {
     ngx_array_t                    caches;  /* ngx_http_file_cache_t * */
 } ngx_http_fastcgi_main_conf_t;
 
 
+/**
+ * @brief FastCGI参数结构
+ */
 typedef struct {
-    ngx_array_t                   *flushes;
-    ngx_array_t                   *lengths;
-    ngx_array_t                   *values;
-    ngx_uint_t                     number;
-    ngx_hash_t                     hash;
+    ngx_array_t                   *flushes;  /* 需要刷新的缓冲区数组 */
+    ngx_array_t                   *lengths;  /* 参数长度数组 */
+    ngx_array_t                   *values;   /* 参数值数组 */
+    ngx_uint_t                     number;   /* 参数数量 */
+    ngx_hash_t                     hash;     /* 参数哈希表 */
 } ngx_http_fastcgi_params_t;
 
 
+/**
+ * @brief FastCGI模块的location配置结构
+ */
 typedef struct {
-    ngx_http_upstream_conf_t       upstream;
+    ngx_http_upstream_conf_t       upstream;  /* 上游配置 */
 
-    ngx_str_t                      index;
+    ngx_str_t                      index;     /* 索引文件名 */
 
-    ngx_http_fastcgi_params_t      params;
+    ngx_http_fastcgi_params_t      params;    /* FastCGI参数 */
 #if (NGX_HTTP_CACHE)
-    ngx_http_fastcgi_params_t      params_cache;
+    ngx_http_fastcgi_params_t      params_cache;  /* 缓存相关的FastCGI参数 */
 #endif
 
-    ngx_array_t                   *params_source;
-    ngx_array_t                   *catch_stderr;
+    ngx_array_t                   *params_source;  /* 参数源数组 */
+    ngx_array_t                   *catch_stderr;   /* 捕获标准错误输出的配置 */
 
-    ngx_array_t                   *fastcgi_lengths;
-    ngx_array_t                   *fastcgi_values;
+    ngx_array_t                   *fastcgi_lengths;  /* FastCGI脚本长度数组 */
+    ngx_array_t                   *fastcgi_values;   /* FastCGI脚本值数组 */
 
-    ngx_flag_t                     keep_conn;
+    ngx_flag_t                     keep_conn;  /* 是否保持连接 */
 
 #if (NGX_HTTP_CACHE)
-    ngx_http_complex_value_t       cache_key;
+    ngx_http_complex_value_t       cache_key;  /* 缓存键 */
 #endif
 
 #if (NGX_PCRE)
-    ngx_regex_t                   *split_regex;
-    ngx_str_t                      split_name;
+    ngx_regex_t                   *split_regex;  /* 用于分割URI的正则表达式 */
+    ngx_str_t                      split_name;   /* 分割名称 */
 #endif
 } ngx_http_fastcgi_loc_conf_t;
 
 
+/**
+ * @brief FastCGI状态枚举
+ */
 typedef enum {
-    ngx_http_fastcgi_st_version = 0,
-    ngx_http_fastcgi_st_type,
-    ngx_http_fastcgi_st_request_id_hi,
-    ngx_http_fastcgi_st_request_id_lo,
-    ngx_http_fastcgi_st_content_length_hi,
-    ngx_http_fastcgi_st_content_length_lo,
-    ngx_http_fastcgi_st_padding_length,
-    ngx_http_fastcgi_st_reserved,
-    ngx_http_fastcgi_st_data,
-    ngx_http_fastcgi_st_padding
+    ngx_http_fastcgi_st_version = 0,         /* FastCGI版本 */
+    ngx_http_fastcgi_st_type,                /* 记录类型 */
+    ngx_http_fastcgi_st_request_id_hi,       /* 请求ID高字节 */
+    ngx_http_fastcgi_st_request_id_lo,       /* 请求ID低字节 */
+    ngx_http_fastcgi_st_content_length_hi,   /* 内容长度高字节 */
+    ngx_http_fastcgi_st_content_length_lo,   /* 内容长度低字节 */
+    ngx_http_fastcgi_st_padding_length,      /* 填充长度 */
+    ngx_http_fastcgi_st_reserved,            /* 保留字段 */
+    ngx_http_fastcgi_st_data,                /* 数据 */
+    ngx_http_fastcgi_st_padding              /* 填充 */
 } ngx_http_fastcgi_state_e;
 
 
+/**
+ * @brief FastCGI分割部分结构
+ */
 typedef struct {
-    u_char                        *start;
-    u_char                        *end;
+    u_char                        *start;    /* 起始指针 */
+    u_char                        *end;      /* 结束指针 */
 } ngx_http_fastcgi_split_part_t;
 
 
+/**
+ * @brief FastCGI上下文结构
+ */
 typedef struct {
-    ngx_http_fastcgi_state_e       state;
-    u_char                        *pos;
-    u_char                        *last;
-    ngx_uint_t                     type;
-    size_t                         length;
-    size_t                         padding;
+    ngx_http_fastcgi_state_e       state;    /* 当前状态 */
+    u_char                        *pos;      /* 当前处理位置 */
+    u_char                        *last;     /* 缓冲区结束位置 */
+    ngx_uint_t                     type;     /* 记录类型 */
+    size_t                         length;   /* 内容长度 */
+    size_t                         padding;  /* 填充长度 */
 
-    off_t                          rest;
+    off_t                          rest;     /* 剩余数据长度 */
 
-    ngx_chain_t                   *free;
-    ngx_chain_t                   *busy;
+    ngx_chain_t                   *free;     /* 空闲缓冲链 */
+    ngx_chain_t                   *busy;     /* 忙碌缓冲链 */
 
-    unsigned                       fastcgi_stdout:1;
-    unsigned                       large_stderr:1;
-    unsigned                       header_sent:1;
-    unsigned                       closed:1;
+    unsigned                       fastcgi_stdout:1;  /* 是否为标准输出 */
+    unsigned                       large_stderr:1;    /* 是否为大量标准错误 */
+    unsigned                       header_sent:1;     /* 是否已发送头部 */
+    unsigned                       closed:1;          /* 是否已关闭 */
 
-    ngx_array_t                   *split_parts;
+    ngx_array_t                   *split_parts;  /* 分割部分数组 */
 
-    ngx_str_t                      script_name;
-    ngx_str_t                      path_info;
+    ngx_str_t                      script_name;  /* 脚本名称 */
+    ngx_str_t                      path_info;    /* 路径信息 */
 } ngx_http_fastcgi_ctx_t;
 
 
+/* FastCGI角色定义 */
 #define NGX_HTTP_FASTCGI_RESPONDER      1
 
+/* FastCGI连接标志 */
 #define NGX_HTTP_FASTCGI_KEEP_CONN      1
 
-#define NGX_HTTP_FASTCGI_BEGIN_REQUEST  1
-#define NGX_HTTP_FASTCGI_ABORT_REQUEST  2
-#define NGX_HTTP_FASTCGI_END_REQUEST    3
-#define NGX_HTTP_FASTCGI_PARAMS         4
-#define NGX_HTTP_FASTCGI_STDIN          5
-#define NGX_HTTP_FASTCGI_STDOUT         6
-#define NGX_HTTP_FASTCGI_STDERR         7
-#define NGX_HTTP_FASTCGI_DATA           8
+/* FastCGI记录类型定义 */
+#define NGX_HTTP_FASTCGI_BEGIN_REQUEST  1  /* 开始请求 */
+#define NGX_HTTP_FASTCGI_ABORT_REQUEST  2  /* 中止请求 */
+#define NGX_HTTP_FASTCGI_END_REQUEST    3  /* 结束请求 */
+#define NGX_HTTP_FASTCGI_PARAMS         4  /* 参数 */
+#define NGX_HTTP_FASTCGI_STDIN          5  /* 标准输入 */
+#define NGX_HTTP_FASTCGI_STDOUT         6  /* 标准输出 */
+#define NGX_HTTP_FASTCGI_STDERR         7  /* 标准错误 */
+#define NGX_HTTP_FASTCGI_DATA           8  /* 数据 */
 
-
+/* FastCGI头部结构 */
 typedef struct {
-    u_char  version;
-    u_char  type;
-    u_char  request_id_hi;
-    u_char  request_id_lo;
-    u_char  content_length_hi;
-    u_char  content_length_lo;
-    u_char  padding_length;
-    u_char  reserved;
+    u_char  version;            /* 版本 */
+    u_char  type;               /* 类型 */
+    u_char  request_id_hi;      /* 请求ID高字节 */
+    u_char  request_id_lo;      /* 请求ID低字节 */
+    u_char  content_length_hi;  /* 内容长度高字节 */
+    u_char  content_length_lo;  /* 内容长度低字节 */
+    u_char  padding_length;     /* 填充长度 */
+    u_char  reserved;           /* 保留字段 */
 } ngx_http_fastcgi_header_t;
 
-
+/* FastCGI开始请求结构 */
 typedef struct {
-    u_char  role_hi;
-    u_char  role_lo;
-    u_char  flags;
-    u_char  reserved[5];
+    u_char  role_hi;            /* 角色高字节 */
+    u_char  role_lo;            /* 角色低字节 */
+    u_char  flags;              /* 标志 */
+    u_char  reserved[5];        /* 保留字段 */
 } ngx_http_fastcgi_begin_request_t;
 
-
+/* FastCGI小头部结构 */
 typedef struct {
-    u_char  version;
-    u_char  type;
-    u_char  request_id_hi;
-    u_char  request_id_lo;
+    u_char  version;            /* 版本 */
+    u_char  type;               /* 类型 */
+    u_char  request_id_hi;      /* 请求ID高字节 */
+    u_char  request_id_lo;      /* 请求ID低字节 */
 } ngx_http_fastcgi_header_small_t;
 
-
+/* FastCGI请求开始结构 */
 typedef struct {
-    ngx_http_fastcgi_header_t         h0;
-    ngx_http_fastcgi_begin_request_t  br;
-    ngx_http_fastcgi_header_small_t   h1;
+    ngx_http_fastcgi_header_t         h0;  /* 主头部 */
+    ngx_http_fastcgi_begin_request_t  br;  /* 开始请求部分 */
+    ngx_http_fastcgi_header_small_t   h1;  /* 小头部 */
 } ngx_http_fastcgi_request_start_t;
 
 
+/* 评估FastCGI请求的配置 */
 static ngx_int_t ngx_http_fastcgi_eval(ngx_http_request_t *r,
     ngx_http_fastcgi_loc_conf_t *flcf);
+
 #if (NGX_HTTP_CACHE)
+/* 为FastCGI请求创建缓存键 */
 static ngx_int_t ngx_http_fastcgi_create_key(ngx_http_request_t *r);
 #endif
+
+/* 创建FastCGI请求 */
 static ngx_int_t ngx_http_fastcgi_create_request(ngx_http_request_t *r);
+
+/* 重新初始化FastCGI请求 */
 static ngx_int_t ngx_http_fastcgi_reinit_request(ngx_http_request_t *r);
+
+/* FastCGI请求体输出过滤器 */
 static ngx_int_t ngx_http_fastcgi_body_output_filter(void *data,
     ngx_chain_t *in);
+
+/* 处理FastCGI响应头 */
 static ngx_int_t ngx_http_fastcgi_process_header(ngx_http_request_t *r);
+
+/* 初始化FastCGI输入过滤器 */
 static ngx_int_t ngx_http_fastcgi_input_filter_init(void *data);
+
+/* FastCGI输入过滤器 */
 static ngx_int_t ngx_http_fastcgi_input_filter(ngx_event_pipe_t *p,
     ngx_buf_t *buf);
+
+/* FastCGI非缓冲过滤器 */
 static ngx_int_t ngx_http_fastcgi_non_buffered_filter(void *data,
     ssize_t bytes);
+
+/* 处理FastCGI记录 */
 static ngx_int_t ngx_http_fastcgi_process_record(ngx_http_request_t *r,
     ngx_http_fastcgi_ctx_t *f);
+
+/* 中止FastCGI请求 */
 static void ngx_http_fastcgi_abort_request(ngx_http_request_t *r);
+
+/* 完成FastCGI请求 */
 static void ngx_http_fastcgi_finalize_request(ngx_http_request_t *r,
     ngx_int_t rc);
 
+/* 添加FastCGI模块相关的变量 */
 static ngx_int_t ngx_http_fastcgi_add_variables(ngx_conf_t *cf);
+
+/* 创建FastCGI模块的主配置结构 */
 static void *ngx_http_fastcgi_create_main_conf(ngx_conf_t *cf);
+
+/* 创建FastCGI模块的位置配置结构 */
 static void *ngx_http_fastcgi_create_loc_conf(ngx_conf_t *cf);
+
+/* 合并FastCGI模块的位置配置 */
 static char *ngx_http_fastcgi_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
+
+/* 初始化FastCGI参数 */
 static ngx_int_t ngx_http_fastcgi_init_params(ngx_conf_t *cf,
     ngx_http_fastcgi_loc_conf_t *conf, ngx_http_fastcgi_params_t *params,
     ngx_keyval_t *default_params);
 
+/* 处理FastCGI的SCRIPT_NAME变量 */
 static ngx_int_t ngx_http_fastcgi_script_name_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+
+/* 处理FastCGI的PATH_INFO变量 */
 static ngx_int_t ngx_http_fastcgi_path_info_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+
+/* 分割FastCGI请求的SCRIPT_NAME和PATH_INFO */
 static ngx_http_fastcgi_ctx_t *ngx_http_fastcgi_split(ngx_http_request_t *r,
     ngx_http_fastcgi_loc_conf_t *flcf);
 
+/* 处理fastcgi_pass指令 */
 static char *ngx_http_fastcgi_pass(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/* 处理fastcgi_split_path_info指令 */
 static char *ngx_http_fastcgi_split_path_info(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
+
+/* 处理fastcgi_store指令 */
 static char *ngx_http_fastcgi_store(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
 #if (NGX_HTTP_CACHE)
+/* 处理fastcgi_cache指令 */
 static char *ngx_http_fastcgi_cache(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/* 处理fastcgi_cache_key指令 */
 static char *ngx_http_fastcgi_cache_key(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 #endif
 
+/**
+ * @brief 检查FastCGI低水位标记配置
+ *
+ * 该函数用于检查FastCGI模块的低水位标记配置是否合法。
+ * 
+ * @param cf Nginx配置结构指针
+ * @param post 后处理函数指针
+ * @param data 配置数据指针
+ * @return 成功返回NGX_CONF_OK，失败返回错误信息字符串
+ */
 static char *ngx_http_fastcgi_lowat_check(ngx_conf_t *cf, void *post,
     void *data);
 
 
+/**
+ * @brief FastCGI低水位标记后处理结构
+ *
+ * 定义了FastCGI低水位标记配置的后处理函数。
+ */
 static ngx_conf_post_t  ngx_http_fastcgi_lowat_post =
     { ngx_http_fastcgi_lowat_check };
 
 
+/**
+ * @brief FastCGI下一个上游服务器的故障转移掩码数组
+ *
+ * 定义了FastCGI模块在上游服务器故障时的故障转移选项。
+ * 每个选项对应一个特定的错误条件或HTTP状态码。
+ */
 static ngx_conf_bitmask_t  ngx_http_fastcgi_next_upstream_masks[] = {
     { ngx_string("error"), NGX_HTTP_UPSTREAM_FT_ERROR },
     { ngx_string("timeout"), NGX_HTTP_UPSTREAM_FT_TIMEOUT },
@@ -221,6 +336,13 @@ static ngx_conf_bitmask_t  ngx_http_fastcgi_next_upstream_masks[] = {
 };
 
 
+/**
+ * @brief FastCGI模块的主结构体
+ *
+ * 这个结构体定义了FastCGI模块的基本信息和配置。
+ * 它包含了模块的上下文、指令集、模块类型等重要信息。
+ * 在Nginx启动时，会使用这个结构体来初始化和配置FastCGI模块。
+ */
 ngx_module_t  ngx_http_fastcgi_module;
 
 
@@ -608,6 +730,12 @@ ngx_module_t  ngx_http_fastcgi_module = {
 };
 
 
+/**
+ * @brief FastCGI请求开始结构体
+ *
+ * 这个结构体定义了FastCGI请求开始时的初始化数据。
+ * 它包含了FastCGI协议所需的头部信息和参数设置。
+ */
 static ngx_http_fastcgi_request_start_t  ngx_http_fastcgi_request_start = {
     { 1,                                               /* version */
       NGX_HTTP_FASTCGI_BEGIN_REQUEST,                  /* type */
@@ -631,6 +759,12 @@ static ngx_http_fastcgi_request_start_t  ngx_http_fastcgi_request_start = {
 };
 
 
+/**
+ * @brief FastCGI模块的变量定义数组
+ *
+ * 这个数组定义了FastCGI模块可用的变量。
+ * 每个变量都是ngx_http_variable_t类型的结构体，包含变量名、获取函数等信息。
+ */
 static ngx_http_variable_t  ngx_http_fastcgi_vars[] = {
 
     { ngx_string("fastcgi_script_name"), NULL,
@@ -677,6 +811,17 @@ static ngx_path_init_t  ngx_http_fastcgi_temp_path = {
 };
 
 
+/**
+ * @brief FastCGI请求处理函数
+ *
+ * 该函数是FastCGI模块的主要处理函数，负责处理来自客户端的FastCGI请求。
+ * 它设置上游连接，初始化FastCGI上下文，并配置请求处理的各个阶段。
+ *
+ * @param r 指向当前HTTP请求结构体的指针
+ * @return NGX_DECLINED 如果请求不应由该模块处理
+ *         NGX_HTTP_INTERNAL_SERVER_ERROR 如果在处理过程中发生错误
+ *         其他 由ngx_http_upstream_create返回的状态码
+ */
 static ngx_int_t
 ngx_http_fastcgi_handler(ngx_http_request_t *r)
 {
@@ -3654,6 +3799,17 @@ ngx_http_fastcgi_split(ngx_http_request_t *r, ngx_http_fastcgi_loc_conf_t *flcf)
 }
 
 
+/**
+ * @brief 处理 fastcgi_pass 指令的函数
+ *
+ * 该函数用于解析和处理 nginx 配置文件中的 fastcgi_pass 指令。
+ * 它设置 FastCGI 的上游服务器地址，并配置相关的处理函数。
+ *
+ * @param cf nginx 配置结构体指针
+ * @param cmd 当前指令的命令结构体指针
+ * @param conf 模块的配置结构体指针
+ * @return 成功时返回 NGX_CONF_OK，失败时返回错误信息字符串
+ */
 static char *
 ngx_http_fastcgi_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {

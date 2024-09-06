@@ -4,33 +4,104 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/**
+ * @file ngx_cycle.c
+ * @brief Nginx核心循环模块
+ * @author Igor Sysoev
+ * @copyright Nginx, Inc.
+ *
+ * 本文件实现了Nginx的核心循环功能，包括以下主要功能:
+ * - 初始化和销毁cycle结构
+ * - 管理共享内存
+ * - 处理配置文件
+ * - 管理模块初始化
+ * - 实现主循环逻辑
+ *
+ * 主要支持的功能:
+ * 1. 创建和初始化新的cycle结构
+ * 2. 解析配置文件
+ * 3. 初始化核心模块和事件模块
+ * 4. 管理共享内存区域
+ * 5. 处理进程间通信
+ * 6. 实现优雅的进程关闭
+ *
+ * 使用注意点:
+ * - 确保正确配置nginx.conf文件
+ * - 注意内存管理，避免内存泄漏
+ * - 合理使用共享内存，避免竞争条件
+ * - 正确处理信号，确保进程可以优雅退出
+ * - 注意日志记录，便于问题排查
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>
 
 
+/**
+ * @brief 销毁cycle中的内存池
+ * @param conf 配置结构体指针
+ */
 static void ngx_destroy_cycle_pools(ngx_conf_t *conf);
+
+/**
+ * @brief 初始化共享内存区域的内存池
+ * @param cycle 当前cycle结构体指针
+ * @param shm_zone 共享内存区域结构体指针
+ * @return ngx_int_t 初始化结果
+ */
 static ngx_int_t ngx_init_zone_pool(ngx_cycle_t *cycle,
     ngx_shm_zone_t *shm_zone);
+
+/**
+ * @brief 测试锁文件
+ * @param file 锁文件路径
+ * @param log 日志对象指针
+ * @return ngx_int_t 测试结果
+ */
 static ngx_int_t ngx_test_lockfile(u_char *file, ngx_log_t *log);
+
+/**
+ * @brief 清理旧的cycle
+ * @param ev 事件对象指针
+ */
 static void ngx_clean_old_cycles(ngx_event_t *ev);
+
+/**
+ * @brief 关闭定时器处理函数
+ * @param ev 事件对象指针
+ */
 static void ngx_shutdown_timer_handler(ngx_event_t *ev);
 
 
+// 当前正在使用的cycle结构体指针
 volatile ngx_cycle_t  *ngx_cycle;
+
+// 存储旧的cycle结构体的数组
 ngx_array_t            ngx_old_cycles;
 
+// 临时内存池
 static ngx_pool_t     *ngx_temp_pool;
+
+// 用于清理旧cycle的事件
 static ngx_event_t     ngx_cleaner_event;
+
+// 用于处理关闭操作的事件
 static ngx_event_t     ngx_shutdown_event;
 
+// 标志是否处于配置测试模式
 ngx_uint_t             ngx_test_config;
+
+// 标志是否需要输出配置信息
 ngx_uint_t             ngx_dump_config;
+
+// 标志是否处于安静模式
 ngx_uint_t             ngx_quiet_mode;
 
 
 /* STUB NAME */
+// 一个虚拟的连接结构体，用于测试或占位
 static ngx_connection_t  dumb;
 /* STUB */
 

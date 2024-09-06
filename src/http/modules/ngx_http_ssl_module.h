@@ -14,6 +14,12 @@
 #include <ngx_http.h>
 
 
+/**
+ * @brief HTTP SSL服务器配置结构
+ *
+ * 这个结构体用于存储HTTP SSL模块的服务器级别配置。
+ * 它包含了SSL/TLS相关的各种设置和参数，如证书、密钥、协议版本等。
+ */
 typedef struct {
     ngx_ssl_t                       ssl;
 
@@ -65,6 +71,7 @@ typedef struct {
 } ngx_http_ssl_srv_conf_t;
 
 
+/* 声明 ngx_http_ssl_module 模块，使其可以在其他文件中被引用 */
 extern ngx_module_t  ngx_http_ssl_module;
 
 

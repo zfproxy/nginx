@@ -4,6 +4,43 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_event_connect.c
+ *
+ * 该文件实现了Nginx的事件连接功能，主要处理与上游服务器的连接建立和管理。
+ *
+ * 支持的功能:
+ * 1. 建立TCP连接
+ * 2. 非阻塞I/O
+ * 3. 连接超时处理
+ * 4. 连接失败重试
+ * 5. 支持SSL/TLS连接
+ * 6. 支持Unix域套接字连接
+ * 7. 支持透明代理
+ *
+ * 支持的指令:
+ * - proxy_connect_timeout
+ * - proxy_ssl_certificate
+ * - proxy_ssl_certificate_key
+ * - proxy_ssl_protocols
+ * - proxy_ssl_ciphers
+ *
+ * 相关变量:
+ * - ngx_event_connect_peer
+ * - ngx_peer_connection_t
+ * - ngx_connection_t
+ *
+ * 使用注意点:
+ * 1. 合理设置连接超时时间，避免长时间阻塞
+ * 2. 注意处理连接失败的情况，实现合适的重试策略
+ * 3. 使用SSL/TLS连接时，确保正确配置证书和密钥
+ * 4. 在高并发场景下，注意控制同时建立的连接数
+ * 5. 使用透明代理功能时，需要确保系统和网络环境支持
+ * 6. 注意处理DNS解析失败的情况
+ * 7. 合理配置错误日志级别，便于问题排查
+ * 8. 在使用Unix域套接字时，注意文件权限设置
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

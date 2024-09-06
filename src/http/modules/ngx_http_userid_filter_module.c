@@ -4,6 +4,71 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_userid_filter_module.c
+ *
+ * 该模块实现了为客户端设置唯一标识符的功能。
+ *
+ * 主要功能:
+ * - 为每个客户端生成唯一的用户ID
+ * - 支持通过cookie存储用户ID
+ * - 提供多种用户ID格式选项
+ * - 支持设置cookie的各种属性(如domain, path, expires等)
+ *
+ * 支持的指令:
+ * - userid: 启用或禁用用户ID功能
+ *   语法: userid on | v1 | log | off;
+ *   默认值: userid off;
+ *   上下文: http, server, location
+ *
+ * - userid_service: 设置用户ID的service字段
+ *   语法: userid_service number;
+ *   默认值: userid_service 0;
+ *   上下文: http, server, location
+ *
+ * - userid_name: 设置存储用户ID的cookie名称
+ *   语法: userid_name name;
+ *   默认值: userid_name uid;
+ *   上下文: http, server, location
+ *
+ * - userid_domain: 设置cookie的domain属性
+ *   语法: userid_domain domain;
+ *   默认值: userid_domain none;
+ *   上下文: http, server, location
+ *
+ * - userid_path: 设置cookie的path属性
+ *   语法: userid_path path;
+ *   默认值: userid_path /;
+ *   上下文: http, server, location
+ *
+ * - userid_expires: 设置cookie的expires属性
+ *   语法: userid_expires time;
+ *   默认值: userid_expires 0;
+ *   上下文: http, server, location
+ *
+ * - userid_p3p: 设置P3P头
+ *   语法: userid_p3p value;
+ *   默认值: userid_p3p none;
+ *   上下文: http, server, location
+ *
+ * - userid_mark: 设置用户ID的标记字符
+ *   语法: userid_mark letter;
+ *   默认值: userid_mark none;
+ *   上下文: http, server, location
+ *
+ * 提供的变量:
+ * - $uid_got: 从客户端获取的用户ID
+ * - $uid_set: 发送给客户端的用户ID
+ *
+ * 使用注意点:
+ * 1. 合理设置cookie的过期时间，以平衡用户体验和隐私保护
+ * 2. 考虑使用secure和httponly标志来增强cookie的安全性
+ * 3. 在跨域场景下正确设置domain属性
+ * 4. 注意P3P设置可能影响某些浏览器的第三方cookie处理
+ * 5. 使用userid_mark时需谨慎，避免与其他标识符冲突
+ * 6. 在处理敏感信息时，不要完全依赖用户ID作为身份验证手段
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

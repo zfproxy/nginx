@@ -4,11 +4,44 @@
  * Copyright (C) Nginx, Inc.
  */
 
+
+/*
+ * ngx_http_empty_gif_module.c
+ *
+ * 该模块实现了返回一个最小的单像素透明GIF图像的功能。
+ *
+ * 支持的功能:
+ * - 返回一个43字节的透明GIF图像
+ * - 自动设置Content-Type为image/gif
+ * - 支持HEAD和GET请求方法
+ * - 设置Last-Modified头为固定时间戳
+ *
+ * 支持的指令:
+ * - empty_gif: 启用空GIF模块功能
+ *   语法: empty_gif;
+ *   默认值: -
+ *   上下文: location
+ *
+ * 支持的变量:
+ * 该模块不提供任何变量。
+ */
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/**
+ * @brief 处理empty_gif指令的函数
+ *
+ * 这个函数用于处理nginx配置文件中的empty_gif指令。
+ * 当在location块中使用empty_gif指令时，会调用此函数进行相应的设置。
+ *
+ * @param cf 指向nginx配置结构的指针
+ * @param cmd 指向当前命令结构的指针
+ * @param conf 指向模块配置结构的指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误信息字符串
+ */
 static char *ngx_http_empty_gif(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
@@ -106,9 +139,21 @@ ngx_module_t  ngx_http_empty_gif_module = {
 };
 
 
+/**
+ * @brief 定义空GIF图像的MIME类型
+ *
+ * 这个静态变量定义了空GIF图像的MIME类型。
+ * 使用ngx_string宏将字符串"image/gif"转换为ngx_str_t类型。
+ * 在发送HTTP响应时，这个变量用于设置Content-Type头部。
+ */
 static ngx_str_t  ngx_http_gif_type = ngx_string("image/gif");
 
 
+/* 
+ * 定义一个静态函数 ngx_http_empty_gif_handler
+ * 该函数用于处理空 GIF 图像的 HTTP 请求
+ * 返回类型为 ngx_int_t，表示处理结果的状态码
+ */
 static ngx_int_t
 ngx_http_empty_gif_handler(ngx_http_request_t *r)
 {

@@ -4,6 +4,55 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_event_openssl.c
+ *
+ * 该文件实现了Nginx的OpenSSL事件处理功能，主要用于SSL/TLS连接的建立和管理。
+ *
+ * 支持的功能:
+ * 1. SSL/TLS连接的建立和管理
+ * 2. 证书和私钥的加载和验证
+ * 3. SSL会话缓存和复用
+ * 4. OCSP Stapling
+ * 5. SNI (Server Name Indication)
+ * 6. 支持TLS 1.3
+ * 7. 早期数据(0-RTT)处理
+ * 8. 动态记录大小调整
+ * 9. 密码套件配置
+ * 10. 客户端证书验证
+ *
+ * 支持的指令:
+ * - ssl_protocols
+ * - ssl_ciphers
+ * - ssl_certificate
+ * - ssl_certificate_key
+ * - ssl_client_certificate
+ * - ssl_verify_client
+ * - ssl_session_cache
+ * - ssl_session_timeout
+ * - ssl_prefer_server_ciphers
+ * - ssl_stapling
+ * - ssl_trusted_certificate
+ *
+ * 相关变量:
+ * - ngx_ssl_connection_t
+ * - ngx_ssl_session_t
+ * - ngx_ssl_t
+ * - ngx_ssl_ocsp_t
+ *
+ * 使用注意点:
+ * 1. 正确配置证书和私钥路径
+ * 2. 合理设置SSL会话缓存大小和超时时间
+ * 3. 注意选择适当的SSL协议版本和密码套件
+ * 4. 在启用客户端证书验证时，确保正确配置CA证书
+ * 5. 使用OCSP Stapling时，确保OCSP响应及时更新
+ * 6. 监控SSL握手性能，适时调整相关参数
+ * 7. 注意处理SSL_read和SSL_write的返回值
+ * 8. 定期更新OpenSSL库，以获取最新的安全补丁
+ * 9. 在使用TLS 1.3时，注意早期数据的安全性问题
+ * 10. 合理配置SSL缓冲区大小，避免内存占用过高
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

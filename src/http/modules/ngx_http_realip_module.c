@@ -4,53 +4,125 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_realip_module.c
+ *
+ * 该模块用于替换客户端IP地址为代理服务器或负载均衡器转发的真实IP地址。
+ *
+ * 支持的功能:
+ * - 从指定的HTTP头部获取真实IP地址
+ * - 从代理协议中获取真实IP地址
+ * - 支持IPv4和IPv6地址
+ * - 可配置受信任的代理IP地址列表
+ * - 递归处理X-Forwarded-For头部
+ *
+ * 支持的指令:
+ * - set_real_ip_from: 设置受信任的代理IP地址或CIDR
+ *   语法: set_real_ip_from address | CIDR | unix:;
+ *   上下文: http, server, location
+ *
+ * - real_ip_header: 设置存储真实IP的HTTP头部
+ *   语法: real_ip_header field | X-Real-IP | X-Forwarded-For | proxy_protocol;
+ *   默认值: real_ip_header X-Real-IP;
+ *   上下文: http, server, location
+ *
+ * - real_ip_recursive: 启用递归地址替换
+ *   语法: real_ip_recursive on | off;
+ *   默认值: real_ip_recursive off;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * - $realip_remote_addr: 原始客户端地址
+ * - $realip_remote_port: 原始客户端端口
+ *
+ * 使用注意点:
+ * 1. 正确配置受信任的代理IP地址，避免IP伪造
+ * 2. 在使用X-Forwarded-For头部时，注意多个IP的处理逻辑
+ * 3. 启用real_ip_recursive时要小心，确保理解其工作原理
+ * 4. 使用代理协议时，确保前端代理正确发送代理协议信息
+ * 5. 更改客户端IP可能会影响其他模块的行为，如访问控制模块
+ * 6. 在日志中记录原始IP和替换后的IP，便于问题排查
+ * 7. 定期检查和更新受信任的代理IP列表
+ * 8. 考虑到性能影响，合理使用该模块，尤其是在高并发场景下
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/* 定义用于表示不同realip来源类型的常量 */
+
+/* X-Real-IP 头部 */
 #define NGX_HTTP_REALIP_XREALIP  0
+
+/* X-Forwarded-For 头部 */
 #define NGX_HTTP_REALIP_XFWD     1
+
+/* 自定义头部 */
 #define NGX_HTTP_REALIP_HEADER   2
+
+/* 代理协议 */
 #define NGX_HTTP_REALIP_PROXY    3
 
-
 typedef struct {
-    ngx_array_t       *from;     /* array of ngx_cidr_t */
-    ngx_uint_t         type;
-    ngx_uint_t         hash;
-    ngx_str_t          header;
-    ngx_flag_t         recursive;
+    ngx_array_t       *from;     /* 存储ngx_cidr_t类型的数组，用于保存受信任的IP地址范围 */
+    ngx_uint_t         type;     /* 表示realip的来源类型，如X-Real-IP、X-Forwarded-For等 */
+    ngx_uint_t         hash;     /* 用于存储header的哈希值，提高查找效率 */
+    ngx_str_t          header;   /* 存储自定义header的名称 */
+    ngx_flag_t         recursive;/* 标志是否递归处理X-Forwarded-For头部 */
 } ngx_http_realip_loc_conf_t;
 
 
 typedef struct {
-    ngx_connection_t  *connection;
-    struct sockaddr   *sockaddr;
-    socklen_t          socklen;
-    ngx_str_t          addr_text;
+    ngx_connection_t  *connection; /* 指向当前连接的指针 */
+    struct sockaddr   *sockaddr;   /* 存储新的客户端地址信息 */
+    socklen_t          socklen;    /* 新的客户端地址长度 */
+    ngx_str_t          addr_text;  /* 新的客户端地址的文本表示 */
 } ngx_http_realip_ctx_t;
 
 
+/* 处理realip模块的主要逻辑 */
 static ngx_int_t ngx_http_realip_handler(ngx_http_request_t *r);
+
+/* 设置新的客户端地址 */
 static ngx_int_t ngx_http_realip_set_addr(ngx_http_request_t *r,
     ngx_addr_t *addr);
+
+/* 清理realip模块相关资源 */
 static void ngx_http_realip_cleanup(void *data);
+
+/* 解析"set_real_ip_from"指令 */
 static char *ngx_http_realip_from(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/* 解析"real_ip_header"指令 */
 static char *ngx_http_realip(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
+/* 创建location配置 */
 static void *ngx_http_realip_create_loc_conf(ngx_conf_t *cf);
+
+/* 合并location配置 */
 static char *ngx_http_realip_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
+
+/* 添加realip模块相关变量 */
 static ngx_int_t ngx_http_realip_add_variables(ngx_conf_t *cf);
+
+/* 初始化realip模块 */
 static ngx_int_t ngx_http_realip_init(ngx_conf_t *cf);
+
+/* 获取realip模块的上下文 */
 static ngx_http_realip_ctx_t *ngx_http_realip_get_module_ctx(
     ngx_http_request_t *r);
 
 
+/* 获取真实客户端IP地址的变量处理函数 */
 static ngx_int_t ngx_http_realip_remote_addr_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+
+/* 获取真实客户端端口的变量处理函数 */
 static ngx_int_t ngx_http_realip_remote_port_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
@@ -114,6 +186,7 @@ ngx_module_t  ngx_http_realip_module = {
 };
 
 
+/* 定义 ngx_http_realip_vars 数组，用于存储 realip 模块的变量 */
 static ngx_http_variable_t  ngx_http_realip_vars[] = {
 
     { ngx_string("realip_remote_addr"), NULL,

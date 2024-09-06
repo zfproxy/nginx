@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "ngx_config.h": "c",
+        "ngx_auto_headers.h": "c",
+        "ngx_core.h": "c",
+        "ngx_stream_variables.h": "c",
+        "ngx_stream_script.h": "c",
+        "ngx_stream_upstream.h": "c",
+        "ngx_event_connect.h": "c"
+    }
+}

@@ -5,6 +5,47 @@
  */
 
 
+/*
+ * ngx_http_static_module.c
+ *
+ * 该模块用于处理静态文件请求。
+ *
+ * 支持的功能:
+ * - 处理静态文件请求
+ * - 支持目录索引
+ * - 支持条件性GET请求（If-Modified-Since）
+ * - 支持范围请求（Range）
+ * - 自动设置Content-Type头
+ * - 支持gzip预压缩文件
+ *
+ * 支持的指令:
+ * - root: 设置静态文件的根目录
+ *   语法: root path;
+ *   默认值: root html;
+ *   上下文: http, server, location
+ *
+ * - alias: 为指定位置设置别名
+ *   语法: alias path;
+ *   上下文: location
+ *
+ * - try_files: 按顺序检查文件是否存在
+ *   语法: try_files file ... uri;
+ *   上下文: server, location
+ *
+ * 支持的变量:
+ * - $request_filename: 当前请求的文件路径
+ *
+ * 使用注意点:
+ * 1. 确保设置了正确的文件系统权限，以允许Nginx读取静态文件
+ * 2. 对于大文件，考虑启用sendfile指令以提高性能
+ * 3. 合理配置expires和cache-control头，以优化客户端缓存
+ * 4. 对于频繁访问的小文件，可以考虑使用open_file_cache指令
+ * 5. 注意防止目录遍历攻击，不要暴露敏感文件
+ * 6. 对于动态生成的内容，不要使用静态模块处理
+ * 7. 合理使用try_files指令，可以实现优雅的回退机制
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>

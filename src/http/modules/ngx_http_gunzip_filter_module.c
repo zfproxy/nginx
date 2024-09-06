@@ -5,6 +5,30 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_gunzip_filter_module.c
+ *
+ * 该模块实现了对gzip压缩响应的自动解压功能。
+ *
+ * 支持的功能:
+ * - 自动检测并解压gzip压缩的响应
+ * - 可配置启用/禁用解压功能
+ * - 可配置解压缓冲区大小
+ *
+ * 支持的指令:
+ * - gunzip: 启用或禁用gunzip解压
+ *   语法: gunzip on | off;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * - gunzip_buffers: 设置用于解压响应的缓冲区数量和大小
+ *   语法: gunzip_buffers number size;
+ *   默认值: 32 4k|16 8k
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * 该模块不提供任何变量。
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

@@ -4,26 +4,61 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_split_clients_module.c
+ *
+ * 该模块实现了Nginx流模块的客户端分流功能。
+ *
+ * 支持的功能：
+ * 1. 基于变量值的哈希分流
+ * 2. 支持百分比配置
+ * 3. 动态分配客户端到不同的组
+ * 4. 可用于A/B测试或灰度发布
+ *
+ * 支持的指令：
+ * - split_clients: 定义客户端分流规则
+ *   语法: split_clients $variable { ... }
+ *   上下文: stream
+ *
+ * 支持的变量：
+ * 该模块不定义特定变量，但可以使用任何有效的Nginx变量作为分流依据
+ *
+ * 使用注意点：
+ * 1. 确保分流百分比总和不超过100%
+ * 2. 选择合适的变量作为分流依据，如$remote_addr或$request_id
+ * 3. 分流结果可以赋值给新变量，用于后续配置中的条件判断
+ * 4. 注意分流规则的性能影响，特别是在高并发场景下
+ * 5. 定期检查分流效果，确保符合预期
+ * 6. 可以结合其他模块（如access模块）使用，实现更复杂的分流逻辑
+ * 7. 在使用split_clients指令时，注意正确配置百分比和对应的值
+ * 8. 分流结果是确定性的，相同的输入变量值会得到相同的分流结果
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
 
+// 定义 split_clients 指令中每个分组的结构体
 typedef struct {
-    uint32_t                      percent;
-    ngx_stream_variable_value_t   value;
+    uint32_t                      percent;  // 该分组的百分比
+    ngx_stream_variable_value_t   value;    // 该分组对应的值
 } ngx_stream_split_clients_part_t;
 
 
+// 定义 split_clients 指令的上下文结构体
 typedef struct {
-    ngx_stream_complex_value_t    value;
-    ngx_array_t                   parts;
+    ngx_stream_complex_value_t    value;    // 用于计算哈希值的表达式
+    ngx_array_t                   parts;    // 存储所有分组的数组
 } ngx_stream_split_clients_ctx_t;
 
 
+// 声明处理 split_clients 指令块的函数
 static char *ngx_conf_split_clients_block(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+// 声明处理 split_clients 指令内容的函数
 static char *ngx_stream_split_clients(ngx_conf_t *cf, ngx_command_t *dummy,
     void *conf);
 
@@ -68,6 +103,13 @@ ngx_module_t  ngx_stream_split_clients_module = {
 };
 
 
+/**
+ * @brief 处理 split_clients 变量的函数
+ * @param s 流会话结构体
+ * @param v 变量值结构体
+ * @param data 上下文数据
+ * @return NGX_OK 表示成功，其他值表示失败
+ */
 static ngx_int_t
 ngx_stream_split_clients_variable(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data)

@@ -4,6 +4,50 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_header_filter_module.c
+ *
+ * 该模块实现了Nginx的HTTP响应头部过滤功能，负责处理和修改HTTP响应的头部信息。
+ *
+ * 支持的功能:
+ * 1. 设置和修改HTTP响应状态码
+ * 2. 添加、修改或删除HTTP响应头字段
+ * 3. 处理内容长度(Content-Length)头
+ * 4. 处理内容类型(Content-Type)头
+ * 5. 处理服务器(Server)头
+ * 6. 处理日期(Date)头
+ * 7. 处理Last-Modified头
+ * 8. 处理ETag头
+ * 9. 处理缓存控制(Cache-Control)头
+ * 10. 支持条件性响应(如304 Not Modified)
+ *
+ * 支持的指令:
+ * - add_header: 添加自定义响应头
+ *   语法: add_header name value [always];
+ *   上下文: http, server, location
+ * - expires: 设置Expires和Cache-Control头
+ *   语法: expires [modified] time;
+ *   expires epoch | max | off;
+ *   上下文: http, server, location
+ * - server_tokens: 控制是否在Server头中显示Nginx版本
+ *   语法: server_tokens on | off | build | string;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * 本模块主要处理响应头，不直接提供可在配置中使用的变量。
+ * 但它会影响一些内置变量的值，如$status。
+ *
+ * 使用注意点:
+ * 1. 合理使用add_header指令，避免添加过多不必要的头部
+ * 2. 谨慎设置expires指令，确保缓存策略符合应用需求
+ * 3. 根据安全需求适当配置server_tokens
+ * 4. 注意头部过滤可能会影响响应的大小和处理时间
+ * 5. 在处理大量并发请求时，优化头部处理以提高性能
+ * 6. 确保添加的自定义头部符合HTTP规范
+ * 7. 注意某些头部(如Set-Cookie)可能需要特殊处理
+ * 8. 在使用反向代理时，注意头部的转发和修改规则
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -11,10 +55,33 @@
 #include <nginx.h>
 
 
+/* 
+ * 初始化HTTP头部过滤器
+ * 参数:
+ *   cf: nginx配置结构体指针
+ * 返回值:
+ *   ngx_int_t: 初始化成功返回NGX_OK，失败返回NGX_ERROR
+ */
 static ngx_int_t ngx_http_header_filter_init(ngx_conf_t *cf);
+/*
+ * HTTP头部过滤器函数
+ * 
+ * 该函数负责处理HTTP响应的头部信息。它会根据请求和配置设置适当的响应头，
+ * 如状态码、内容类型、服务器信息等。这是响应处理过程中的一个重要环节。
+ *
+ * @param r HTTP请求结构体指针，包含了请求的所有相关信息
+ * @return ngx_int_t 返回处理结果，通常是NGX_OK表示成功，或者错误码
+ */
 static ngx_int_t ngx_http_header_filter(ngx_http_request_t *r);
 
 
+/*
+ * HTTP头部过滤器模块的上下文结构
+ * 
+ * 该结构定义了HTTP头部过滤器模块的各个回调函数和配置处理函数。
+ * 大多数字段为NULL，表示该模块不需要相应的处理。
+ * 只设置了postconfiguration字段，指向模块的初始化函数。
+ */
 static ngx_http_module_t  ngx_http_header_filter_module_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_http_header_filter_init,           /* postconfiguration */
@@ -30,6 +97,12 @@ static ngx_http_module_t  ngx_http_header_filter_module_ctx = {
 };
 
 
+/*
+ * HTTP头部过滤器模块定义
+ *
+ * 该结构定义了HTTP头部过滤器模块的基本信息和行为。
+ * 它是nginx模块系统的标准组成部分，用于注册和配置该模块。
+ */
 ngx_module_t  ngx_http_header_filter_module = {
     NGX_MODULE_V1,
     &ngx_http_header_filter_module_ctx,    /* module context */
@@ -46,11 +119,33 @@ ngx_module_t  ngx_http_header_filter_module = {
 };
 
 
+/* 
+ * 定义默认的服务器响应头字符串
+ * 包含"Server: nginx"和回车换行符
+ * 用于在HTTP响应中标识服务器类型
+ */
 static u_char ngx_http_server_string[] = "Server: nginx" CRLF;
+/* 
+ * 定义包含完整版本信息的服务器响应头字符串
+ * 包含"Server: nginx/x.x.x"（其中x.x.x为nginx版本号）和回车换行符
+ * 用于在HTTP响应中提供更详细的服务器版本信息
+ */
 static u_char ngx_http_server_full_string[] = "Server: " NGINX_VER CRLF;
+/* 
+ * 定义包含完整构建信息的服务器响应头字符串
+ * 包含"Server: nginx/x.x.x (构建信息)"（其中x.x.x为nginx版本号，构建信息包括编译选项等）和回车换行符
+ * 用于在HTTP响应中提供最详细的服务器版本和构建信息，通常用于调试或特殊需求
+ */
 static u_char ngx_http_server_build_string[] = "Server: " NGINX_VER_BUILD CRLF;
 
 
+/*
+ * 定义HTTP状态码对应的状态行数组
+ * 这个数组包含了常见HTTP状态码的文本描述
+ * 数组索引对应状态码减去200，例如index 0对应状态码200
+ * 使用ngx_string宏创建ngx_str_t类型的静态字符串
+ * 对于未使用的状态码，使用ngx_null_string占位
+ */
 static ngx_str_t ngx_http_status_lines[] = {
 
     ngx_string("200 OK"),
@@ -132,6 +227,11 @@ static ngx_str_t ngx_http_status_lines[] = {
 };
 
 
+/*
+ * 定义HTTP响应头部数组
+ * 每个元素包含头部名称和在ngx_http_headers_out_t结构中的偏移量
+ * 用于快速访问和设置常见的HTTP响应头
+ */
 ngx_http_header_out_t  ngx_http_headers_out[] = {
     { ngx_string("Server"), offsetof(ngx_http_headers_out_t, server) },
     { ngx_string("Date"), offsetof(ngx_http_headers_out_t, date) },

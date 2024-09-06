@@ -4,111 +4,219 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_proxy_module.c
+ *
+ * 该模块实现了Nginx流模块的代理功能。
+ *
+ * 支持的功能：
+ * 1. TCP/UDP代理
+ * 2. 负载均衡
+ * 3. SSL/TLS支持
+ * 4. 上游连接池
+ * 5. 健康检查
+ * 6. 重试机制
+ * 7. 带宽限制
+ * 8. PROXY协议支持
+ *
+ * 支持的指令：
+ * - proxy_pass: 设置上游服务器
+ *   语法: proxy_pass address;
+ *   上下文: server
+ * - proxy_bind: 绑定特定的本地IP地址和端口
+ * - proxy_connect_timeout: 设置与上游服务器建立连接的超时时间
+ * - proxy_timeout: 设置两次成功读/写操作之间的超时时间
+ * - proxy_upload_rate: 限制客户端数据传输到上游的速率
+ * - proxy_download_rate: 限制从上游传输到客户端的数据速率
+ * - proxy_next_upstream: 控制在何种情况下请求传递给下一台上游服务器
+ * - proxy_next_upstream_tries: 设置将请求传递给下一台上游服务器的最大次数
+ * - proxy_next_upstream_timeout: 设置将请求传递给所有上游服务器的总超时时间
+ * - proxy_protocol: 启用PROXY协议
+ * - proxy_ssl: 启用到上游服务器的SSL/TLS连接
+ *
+ * 支持的变量：
+ * - $proxy_host: 上游服务器的IP地址和端口或UNIX域套接字路径
+ * - $proxy_port: 上游服务器的端口
+ * - $proxy_add_x_forwarded_for: 包含客户端IP地址的X-Forwarded-For头部字段
+ *
+ * 使用注意点：
+ * 1. 合理配置超时时间，避免连接长时间占用
+ * 2. 适当设置缓冲区大小，平衡内存使用和性能
+ * 3. 使用SSL/TLS时注意证书配置和性能影响
+ * 4. 启用PROXY协议时确保上游服务器支持
+ * 5. 合理使用重试机制，避免对上游服务器造成过大压力
+ * 6. 配置带宽限制时注意overall效果
+ * 7. 在高并发场景下，注意调整连接池大小
+ * 8. 使用健康检查时，合理设置检查间隔和超时时间
+ * 9. 注意负载均衡策略的选择，根据实际需求进行调整
+ * 10. 定期检查日志，及时发现和解决潜在问题
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
 
+// 定义上游本地配置结构体
 typedef struct {
-    ngx_addr_t                      *addr;
-    ngx_stream_complex_value_t      *value;
+    ngx_addr_t                      *addr;    // 本地地址
+    ngx_stream_complex_value_t      *value;   // 复杂值
 #if (NGX_HAVE_TRANSPARENT_PROXY)
-    ngx_uint_t                       transparent; /* unsigned  transparent:1; */
+    ngx_uint_t                       transparent; /* unsigned  transparent:1; */  // 透明代理标志
 #endif
 } ngx_stream_upstream_local_t;
 
 
+// 定义代理服务配置结构体
 typedef struct {
-    ngx_msec_t                       connect_timeout;
-    ngx_msec_t                       timeout;
-    ngx_msec_t                       next_upstream_timeout;
-    size_t                           buffer_size;
-    ngx_stream_complex_value_t      *upload_rate;
-    ngx_stream_complex_value_t      *download_rate;
-    ngx_uint_t                       requests;
-    ngx_uint_t                       responses;
-    ngx_uint_t                       next_upstream_tries;
-    ngx_flag_t                       next_upstream;
-    ngx_flag_t                       proxy_protocol;
-    ngx_flag_t                       half_close;
-    ngx_stream_upstream_local_t     *local;
-    ngx_flag_t                       socket_keepalive;
+    ngx_msec_t                       connect_timeout;        // 连接超时时间
+    ngx_msec_t                       timeout;                // 读写超时时间
+    ngx_msec_t                       next_upstream_timeout;  // 切换上游服务器超时时间
+    size_t                           buffer_size;            // 缓冲区大小
+    ngx_stream_complex_value_t      *upload_rate;            // 上传速率限制
+    ngx_stream_complex_value_t      *download_rate;          // 下载速率限制
+    ngx_uint_t                       requests;               // 请求数量
+    ngx_uint_t                       responses;              // 响应数量
+    ngx_uint_t                       next_upstream_tries;    // 尝试切换上游服务器的次数
+    ngx_flag_t                       next_upstream;          // 是否允许切换上游服务器
+    ngx_flag_t                       proxy_protocol;         // 是否启用PROXY协议
+    ngx_flag_t                       half_close;             // 是否启用半关闭
+    ngx_stream_upstream_local_t     *local;                  // 本地配置
+    ngx_flag_t                       socket_keepalive;       // 是否启用socket keepalive
 
 #if (NGX_STREAM_SSL)
-    ngx_flag_t                       ssl_enable;
-    ngx_flag_t                       ssl_session_reuse;
-    ngx_uint_t                       ssl_protocols;
-    ngx_str_t                        ssl_ciphers;
-    ngx_stream_complex_value_t      *ssl_name;
-    ngx_flag_t                       ssl_server_name;
+    ngx_flag_t                       ssl_enable;             // 是否启用SSL
+    ngx_flag_t                       ssl_session_reuse;      // 是否启用SSL会话重用
+    ngx_uint_t                       ssl_protocols;          // SSL协议版本
+    ngx_str_t                        ssl_ciphers;            // SSL加密套件
+    ngx_stream_complex_value_t      *ssl_name;               // SSL服务器名称
+    ngx_flag_t                       ssl_server_name;        // 是否发送服务器名称
 
-    ngx_flag_t                       ssl_verify;
-    ngx_uint_t                       ssl_verify_depth;
-    ngx_str_t                        ssl_trusted_certificate;
-    ngx_str_t                        ssl_crl;
-    ngx_stream_complex_value_t      *ssl_certificate;
-    ngx_stream_complex_value_t      *ssl_certificate_key;
-    ngx_array_t                     *ssl_passwords;
-    ngx_array_t                     *ssl_conf_commands;
+    ngx_flag_t                       ssl_verify;             // 是否验证SSL证书
+    ngx_uint_t                       ssl_verify_depth;       // SSL证书验证深度
+    ngx_str_t                        ssl_trusted_certificate;// 受信任的CA证书
+    ngx_str_t                        ssl_crl;                // 证书吊销列表
+    ngx_stream_complex_value_t      *ssl_certificate;        // SSL证书
+    ngx_stream_complex_value_t      *ssl_certificate_key;    // SSL证书密钥
+    ngx_array_t                     *ssl_passwords;          // SSL密码
+    ngx_array_t                     *ssl_conf_commands;      // SSL配置命令
 
-    ngx_ssl_t                       *ssl;
+    ngx_ssl_t                       *ssl;                    // SSL上下文
 #endif
 
-    ngx_stream_upstream_srv_conf_t  *upstream;
-    ngx_stream_complex_value_t      *upstream_value;
+    ngx_stream_upstream_srv_conf_t  *upstream;               // 上游服务器配置
+    ngx_stream_complex_value_t      *upstream_value;         // 上游服务器复杂值
 } ngx_stream_proxy_srv_conf_t;
 
 
+// 处理代理请求的主要函数
 static void ngx_stream_proxy_handler(ngx_stream_session_t *s);
+
+// 评估代理配置
 static ngx_int_t ngx_stream_proxy_eval(ngx_stream_session_t *s,
     ngx_stream_proxy_srv_conf_t *pscf);
+
+// 设置本地连接参数
 static ngx_int_t ngx_stream_proxy_set_local(ngx_stream_session_t *s,
     ngx_stream_upstream_t *u, ngx_stream_upstream_local_t *local);
+
+// 建立与上游服务器的连接
 static void ngx_stream_proxy_connect(ngx_stream_session_t *s);
+
+// 初始化上游连接
 static void ngx_stream_proxy_init_upstream(ngx_stream_session_t *s);
+
+// 处理域名解析结果
 static void ngx_stream_proxy_resolve_handler(ngx_resolver_ctx_t *ctx);
+
+// 处理上游事件
 static void ngx_stream_proxy_upstream_handler(ngx_event_t *ev);
+
+// 处理下游事件
 static void ngx_stream_proxy_downstream_handler(ngx_event_t *ev);
+
+// 处理连接事件
 static void ngx_stream_proxy_process_connection(ngx_event_t *ev,
     ngx_uint_t from_upstream);
+
+// 处理连接建立事件
 static void ngx_stream_proxy_connect_handler(ngx_event_t *ev);
+
+// 测试连接是否成功
 static ngx_int_t ngx_stream_proxy_test_connect(ngx_connection_t *c);
+
+// 处理数据传输
 static void ngx_stream_proxy_process(ngx_stream_session_t *s,
     ngx_uint_t from_upstream, ngx_uint_t do_write);
+
+// 测试并完成代理会话
 static ngx_int_t ngx_stream_proxy_test_finalize(ngx_stream_session_t *s,
     ngx_uint_t from_upstream);
+
+// 切换到下一个上游服务器
 static void ngx_stream_proxy_next_upstream(ngx_stream_session_t *s);
+
+// 结束代理会话
 static void ngx_stream_proxy_finalize(ngx_stream_session_t *s, ngx_uint_t rc);
+
+// 记录错误日志
 static u_char *ngx_stream_proxy_log_error(ngx_log_t *log, u_char *buf,
     size_t len);
 
+// 创建服务器配置
 static void *ngx_stream_proxy_create_srv_conf(ngx_conf_t *cf);
+
+// 合并服务器配置
 static char *ngx_stream_proxy_merge_srv_conf(ngx_conf_t *cf, void *parent,
     void *child);
+
+// 处理proxy_pass指令
 static char *ngx_stream_proxy_pass(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+// 处理proxy_bind指令
 static char *ngx_stream_proxy_bind(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
 #if (NGX_STREAM_SSL)
 
+// 发送代理协议
 static ngx_int_t ngx_stream_proxy_send_proxy_protocol(ngx_stream_session_t *s);
+
+// 处理SSL密码文件配置
 static char *ngx_stream_proxy_ssl_password_file(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
+
+// 检查SSL配置命令
 static char *ngx_stream_proxy_ssl_conf_command_check(ngx_conf_t *cf, void *post,
     void *data);
+
+// 初始化SSL连接
 static void ngx_stream_proxy_ssl_init_connection(ngx_stream_session_t *s);
+
+// 处理SSL握手
 static void ngx_stream_proxy_ssl_handshake(ngx_connection_t *pc);
+
+// 保存SSL会话
 static void ngx_stream_proxy_ssl_save_session(ngx_connection_t *c);
+
+// 获取SSL服务器名称
 static ngx_int_t ngx_stream_proxy_ssl_name(ngx_stream_session_t *s);
+
+// 处理SSL证书
 static ngx_int_t ngx_stream_proxy_ssl_certificate(ngx_stream_session_t *s);
+
+// 合并SSL配置
 static ngx_int_t ngx_stream_proxy_merge_ssl(ngx_conf_t *cf,
     ngx_stream_proxy_srv_conf_t *conf, ngx_stream_proxy_srv_conf_t *prev);
+
+// 设置SSL配置
 static ngx_int_t ngx_stream_proxy_set_ssl(ngx_conf_t *cf,
     ngx_stream_proxy_srv_conf_t *pscf);
 
 
+// SSL协议位掩码配置
 static ngx_conf_bitmask_t  ngx_stream_proxy_ssl_protocols[] = {
     { ngx_string("SSLv2"), NGX_SSL_SSLv2 },
     { ngx_string("SSLv3"), NGX_SSL_SSLv3 },
@@ -119,6 +227,7 @@ static ngx_conf_bitmask_t  ngx_stream_proxy_ssl_protocols[] = {
     { ngx_null_string, 0 }
 };
 
+// SSL配置命令后处理函数
 static ngx_conf_post_t  ngx_stream_proxy_ssl_conf_command_post =
     { ngx_stream_proxy_ssl_conf_command_check };
 
@@ -136,6 +245,7 @@ static ngx_conf_deprecated_t  ngx_conf_deprecated_proxy_upstream_buffer = {
 
 static ngx_command_t  ngx_stream_proxy_commands[] = {
 
+    // 定义代理目标服务器
     { ngx_string("proxy_pass"),
       NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_proxy_pass,
@@ -143,6 +253,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       0,
       NULL },
 
+    // 绑定特定的本地IP地址和端口
     { ngx_string("proxy_bind"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE12,
       ngx_stream_proxy_bind,
@@ -150,6 +261,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       0,
       NULL },
 
+    // 启用或禁用TCP keepalive
     { ngx_string("proxy_socket_keepalive"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -157,6 +269,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, socket_keepalive),
       NULL },
 
+    // 设置与上游服务器建立连接的超时时间
     { ngx_string("proxy_connect_timeout"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_msec_slot,
@@ -164,6 +277,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, connect_timeout),
       NULL },
 
+    // 设置两次成功读/写操作之间的超时时间
     { ngx_string("proxy_timeout"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_msec_slot,
@@ -171,6 +285,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, timeout),
       NULL },
 
+    // 设置用于从上游服务器读取数据的缓冲区大小
     { ngx_string("proxy_buffer_size"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
@@ -178,6 +293,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, buffer_size),
       NULL },
 
+    // 已废弃，使用proxy_buffer_size替代
     { ngx_string("proxy_downstream_buffer"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
@@ -185,6 +301,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, buffer_size),
       &ngx_conf_deprecated_proxy_downstream_buffer },
 
+    // 已废弃，使用proxy_buffer_size替代
     { ngx_string("proxy_upstream_buffer"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
@@ -192,6 +309,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, buffer_size),
       &ngx_conf_deprecated_proxy_upstream_buffer },
 
+    // 限制客户端数据传输到上游服务器的速率
     { ngx_string("proxy_upload_rate"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_set_complex_value_size_slot,
@@ -199,6 +317,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, upload_rate),
       NULL },
 
+    // 限制从上游服务器下载数据到客户端的速率
     { ngx_string("proxy_download_rate"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_set_complex_value_size_slot,
@@ -206,6 +325,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, download_rate),
       NULL },
 
+    // 设置通过一个连接可以处理的请求数量
     { ngx_string("proxy_requests"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -213,6 +333,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, requests),
       NULL },
 
+    // 设置通过一个连接可以处理的响应数量
     { ngx_string("proxy_responses"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -220,6 +341,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, responses),
       NULL },
 
+    // 启用或禁用在连接失败时尝试下一个上游服务器
     { ngx_string("proxy_next_upstream"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -227,6 +349,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, next_upstream),
       NULL },
 
+    // 设置尝试连接下一个上游服务器的最大次数
     { ngx_string("proxy_next_upstream_tries"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -234,6 +357,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, next_upstream_tries),
       NULL },
 
+    // 设置尝试连接下一个上游服务器的超时时间
     { ngx_string("proxy_next_upstream_timeout"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_msec_slot,
@@ -241,6 +365,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, next_upstream_timeout),
       NULL },
 
+    // 启用或禁用PROXY协议
     { ngx_string("proxy_protocol"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -248,6 +373,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, proxy_protocol),
       NULL },
 
+    // 启用或禁用半关闭连接
     { ngx_string("proxy_half_close"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -257,6 +383,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
 
 #if (NGX_STREAM_SSL)
 
+    // 启用或禁用到上游服务器的SSL/TLS连接
     { ngx_string("proxy_ssl"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -264,6 +391,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_enable),
       NULL },
 
+    // 启用或禁用SSL会话重用
     { ngx_string("proxy_ssl_session_reuse"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -271,6 +399,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_session_reuse),
       NULL },
 
+    // 设置SSL/TLS协议版本
     { ngx_string("proxy_ssl_protocols"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_1MORE,
       ngx_conf_set_bitmask_slot,
@@ -278,6 +407,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_protocols),
       &ngx_stream_proxy_ssl_protocols },
 
+    // 设置SSL/TLS加密算法
     { ngx_string("proxy_ssl_ciphers"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
@@ -285,6 +415,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_ciphers),
       NULL },
 
+    // 设置进行SSL握手时发送的服务器名称
     { ngx_string("proxy_ssl_name"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_set_complex_value_slot,
@@ -292,6 +423,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_name),
       NULL },
 
+    // 启用或禁用在SSL握手时发送服务器名称
     { ngx_string("proxy_ssl_server_name"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -299,6 +431,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_server_name),
       NULL },
 
+    // 启用或禁用上游服务器证书验证
     { ngx_string("proxy_ssl_verify"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -306,6 +439,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_verify),
       NULL },
 
+    // 设置证书验证深度
     { ngx_string("proxy_ssl_verify_depth"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -313,6 +447,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_verify_depth),
       NULL },
 
+    // 设置用于验证上游服务器证书的受信任CA证书
     { ngx_string("proxy_ssl_trusted_certificate"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
@@ -320,6 +455,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_trusted_certificate),
       NULL },
 
+    // 设置证书吊销列表（CRL）文件
     { ngx_string("proxy_ssl_crl"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
@@ -327,6 +463,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_crl),
       NULL },
 
+    // 设置客户端证书文件
     { ngx_string("proxy_ssl_certificate"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_set_complex_value_zero_slot,
@@ -334,6 +471,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_certificate),
       NULL },
 
+    // 设置客户端证书密钥文件
     { ngx_string("proxy_ssl_certificate_key"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_set_complex_value_zero_slot,
@@ -341,6 +479,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       offsetof(ngx_stream_proxy_srv_conf_t, ssl_certificate_key),
       NULL },
 
+    // 设置包含SSL证书密码的文件
     { ngx_string("proxy_ssl_password_file"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_proxy_ssl_password_file,
@@ -348,6 +487,7 @@ static ngx_command_t  ngx_stream_proxy_commands[] = {
       0,
       NULL },
 
+    // 设置SSL配置命令
     { ngx_string("proxy_ssl_conf_command"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE2,
       ngx_conf_set_keyval_slot,
@@ -704,37 +844,46 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
 
     c = s->connection;
 
+    // 设置日志动作为"连接到上游"
     c->log->action = "connecting to upstream";
 
+    // 获取代理模块的服务器配置
     pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
 
     u = s->upstream;
 
+    // 初始化上游连接状态
     u->connected = 0;
     u->proxy_protocol = pscf->proxy_protocol;
 
+    // 如果存在上游状态，更新响应时间
     if (u->state) {
         u->state->response_time = ngx_current_msec - u->start_time;
     }
 
+    // 为新的上游状态分配内存
     u->state = ngx_array_push(s->upstream_states);
     if (u->state == NULL) {
         ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
     }
 
+    // 初始化新的上游状态
     ngx_memzero(u->state, sizeof(ngx_stream_upstream_state_t));
 
     u->start_time = ngx_current_msec;
 
+    // 初始化连接时间、首字节时间和响应时间为-1
     u->state->connect_time = (ngx_msec_t) -1;
     u->state->first_byte_time = (ngx_msec_t) -1;
     u->state->response_time = (ngx_msec_t) -1;
 
+    // 尝试连接到上游peer
     rc = ngx_event_connect_peer(&u->peer);
 
     ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0, "proxy connect: %i", rc);
 
+    // 处理连接结果
     if (rc == NGX_ERROR) {
         ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
@@ -757,6 +906,7 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
 
     pc = u->peer.connection;
 
+    // 设置peer连接的相关属性
     pc->data = s;
     pc->log = c->log;
     pc->pool = c->pool;
@@ -764,10 +914,12 @@ ngx_stream_proxy_connect(ngx_stream_session_t *s)
     pc->write->log = c->log;
 
     if (rc != NGX_AGAIN) {
+        // 如果连接立即成功，初始化上游
         ngx_stream_proxy_init_upstream(s);
         return;
     }
 
+    // 如果连接未立即完成，设置处理程序和超时
     pc->read->handler = ngx_stream_proxy_connect_handler;
     pc->write->handler = ngx_stream_proxy_connect_handler;
 
@@ -791,6 +943,7 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
 
     cscf = ngx_stream_get_module_srv_conf(s, ngx_stream_core_module);
 
+    // 如果是TCP连接且启用了TCP_NODELAY选项,则设置该选项
     if (pc->type == SOCK_STREAM
         && cscf->tcp_nodelay
         && ngx_tcp_nodelay(pc) != NGX_OK)
@@ -803,8 +956,10 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
 
 #if (NGX_STREAM_SSL)
 
+    // 如果是TCP连接且启用了SSL
     if (pc->type == SOCK_STREAM && pscf->ssl_enable) {
 
+        // 如果需要发送PROXY协议头
         if (u->proxy_protocol) {
             if (ngx_stream_proxy_send_proxy_protocol(s) != NGX_OK) {
                 return;
@@ -813,6 +968,7 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
             u->proxy_protocol = 0;
         }
 
+        // 如果SSL连接还未初始化,则初始化SSL连接
         if (pc->ssl == NULL) {
             ngx_stream_proxy_ssl_init_connection(s);
             return;
@@ -823,6 +979,7 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
 
     c = s->connection;
 
+    // 如果日志级别足够高,记录连接信息
     if (c->log->log_level >= NGX_LOG_INFO) {
         ngx_str_t  str;
         u_char     addr[NGX_SOCKADDR_STRLEN];
@@ -843,13 +1000,16 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
         }
     }
 
+    // 记录连接时间
     u->state->connect_time = ngx_current_msec - u->start_time;
 
+    // 如果设置了通知回调,则调用
     if (u->peer.notify) {
         u->peer.notify(&u->peer, u->peer.data,
                        NGX_STREAM_UPSTREAM_NOTIFY_CONNECT);
     }
 
+    // 如果上游缓冲区未初始化,则初始化
     if (u->upstream_buf.start == NULL) {
         p = ngx_pnalloc(c->pool, pscf->buffer_size);
         if (p == NULL) {
@@ -863,6 +1023,7 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
         u->upstream_buf.last = p;
     }
 
+    // 如果有预读数据,添加到上游输出链中
     if (c->buffer && c->buffer->pos <= c->buffer->last) {
         ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0,
                        "stream proxy add preread buffer: %uz",
@@ -884,6 +1045,7 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
         u->upstream_out = cl;
     }
 
+    // 如果需要发送PROXY协议头
     if (u->proxy_protocol) {
         ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0,
                        "stream proxy add PROXY protocol header");
@@ -921,18 +1083,23 @@ ngx_stream_proxy_init_upstream(ngx_stream_session_t *s)
         u->proxy_protocol = 0;
     }
 
+    // 设置上传和下载速率限制
     u->upload_rate = ngx_stream_complex_value_size(s, pscf->upload_rate, 0);
     u->download_rate = ngx_stream_complex_value_size(s, pscf->download_rate, 0);
 
+    // 标记连接已建立
     u->connected = 1;
 
+    // 设置上游连接的读写处理函数
     pc->read->handler = ngx_stream_proxy_upstream_handler;
     pc->write->handler = ngx_stream_proxy_upstream_handler;
 
+    // 如果上游连接可读,将读事件加入posted_events队列
     if (pc->read->ready) {
         ngx_post_event(pc->read, &ngx_posted_events);
     }
 
+    // 开始处理代理连接
     ngx_stream_proxy_process(s, 0, 1);
 }
 
@@ -1517,25 +1684,31 @@ ngx_stream_proxy_connect_handler(ngx_event_t *ev)
     ngx_connection_t      *c;
     ngx_stream_session_t  *s;
 
+    // 获取连接和会话对象
     c = ev->data;
     s = c->data;
 
+    // 检查是否超时
     if (ev->timedout) {
         ngx_log_error(NGX_LOG_ERR, c->log, NGX_ETIMEDOUT, "upstream timed out");
         ngx_stream_proxy_next_upstream(s);
         return;
     }
 
+    // 删除写事件的定时器
     ngx_del_timer(c->write);
 
+    // 记录调试日志
     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0,
                    "stream proxy connect upstream");
 
+    // 测试连接是否成功
     if (ngx_stream_proxy_test_connect(c) != NGX_OK) {
         ngx_stream_proxy_next_upstream(s);
         return;
     }
 
+    // 初始化上游连接
     ngx_stream_proxy_init_upstream(s);
 }
 
@@ -1607,6 +1780,7 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
     c = s->connection;
     pc = u->connected ? u->peer.connection : NULL;
 
+    // 如果是UDP连接且Nginx正在关闭，则结束会话
     if (c->type == SOCK_DGRAM && (ngx_terminate || ngx_exiting)) {
 
         /* socket is already closed on worker shutdown */
@@ -1624,6 +1798,7 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
 
     pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
 
+    // 根据数据流方向设置相应的变量
     if (from_upstream) {
         src = pc;
         dst = c;
@@ -1651,6 +1826,7 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
 
     for ( ;; ) {
 
+        // 处理写操作
         if (do_write && dst) {
 
             if (*out || *busy || dst->buffered) {
@@ -1675,8 +1851,10 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
 
         size = b->end - b->last;
 
+        // 处理读操作
         if (size && src->read->ready && !src->read->delayed) {
 
+            // 处理限速
             if (limit_rate) {
                 limit = (off_t) limit_rate * (ngx_time() - u->start_sec + 1)
                         - *received;
@@ -1707,6 +1885,7 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
             }
 
             if (n >= 0) {
+                // 处理读取到的数据
                 if (limit_rate) {
                     delay = (ngx_msec_t) (n * 1000 / limit_rate);
 
@@ -1756,12 +1935,14 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
 
     c->log->action = "proxying connection";
 
+    // 检查是否需要结束会话
     if (ngx_stream_proxy_test_finalize(s, from_upstream) == NGX_OK) {
         return;
     }
 
     flags = src->read->eof ? NGX_CLOSE_EVENT : 0;
 
+    // 处理读事件
     if (ngx_handle_read_event(src->read, flags) != NGX_OK) {
         ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
@@ -1769,6 +1950,7 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
 
     if (dst) {
 
+        // 处理半关闭
         if (dst->type == SOCK_STREAM && pscf->half_close
             && src->read->eof && !u->half_closed && !dst->buffered)
         {
@@ -1786,11 +1968,13 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
                            from_upstream ? "client" : "upstream");
         }
 
+        // 处理写事件
         if (ngx_handle_write_event(dst->write, 0) != NGX_OK) {
             ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
             return;
         }
 
+        // 设置或删除超时定时器
         if (!c->read->delayed && !pc->read->delayed) {
             ngx_add_timer(c->write, pscf->timeout);
 
@@ -1897,12 +2081,14 @@ ngx_stream_proxy_next_upstream(ngx_stream_session_t *s)
     ngx_stream_upstream_t        *u;
     ngx_stream_proxy_srv_conf_t  *pscf;
 
+    // 记录调试日志
     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
                    "stream proxy next upstream");
 
     u = s->upstream;
     pc = u->peer.connection;
 
+    // 检查是否有缓冲数据
     if (pc && pc->buffered) {
         ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                       "buffered data on next upstream");
@@ -1910,19 +2096,24 @@ ngx_stream_proxy_next_upstream(ngx_stream_session_t *s)
         return;
     }
 
+    // 如果是UDP连接，清空上游输出缓冲
     if (s->connection->type == SOCK_DGRAM) {
         u->upstream_out = NULL;
     }
 
+    // 释放当前peer连接
     if (u->peer.sockaddr) {
         u->peer.free(&u->peer, u->peer.data, NGX_PEER_FAILED);
         u->peer.sockaddr = NULL;
     }
 
+    // 获取代理模块的服务器配置
     pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
 
+    // 获取下一个上游的超时时间
     timeout = pscf->next_upstream_timeout;
 
+    // 检查是否可以尝试下一个上游
     if (u->peer.tries == 0
         || !pscf->next_upstream
         || (timeout && ngx_current_msec - u->peer.start_time >= timeout))
@@ -1931,11 +2122,13 @@ ngx_stream_proxy_next_upstream(ngx_stream_session_t *s)
         return;
     }
 
+    // 关闭当前上游连接
     if (pc) {
         ngx_log_debug1(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
                        "close proxy upstream connection: %d", pc->fd);
 
 #if (NGX_STREAM_SSL)
+        // 如果是SSL连接，进行特殊处理
         if (pc->ssl) {
             pc->ssl->no_wait_shutdown = 1;
             pc->ssl->no_send_shutdown = 1;
@@ -1944,13 +2137,16 @@ ngx_stream_proxy_next_upstream(ngx_stream_session_t *s)
         }
 #endif
 
+        // 更新状态信息
         u->state->bytes_received = u->received;
         u->state->bytes_sent = pc->sent;
 
+        // 关闭连接
         ngx_close_connection(pc);
         u->peer.connection = NULL;
     }
 
+    // 尝试连接下一个上游
     ngx_stream_proxy_connect(s);
 }
 
@@ -1962,63 +2158,78 @@ ngx_stream_proxy_finalize(ngx_stream_session_t *s, ngx_uint_t rc)
     ngx_connection_t       *pc;
     ngx_stream_upstream_t  *u;
 
+    // 记录调试日志
     ngx_log_debug1(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
                    "finalize stream proxy: %i", rc);
 
+    // 获取上游连接
     u = s->upstream;
 
+    // 如果上游连接不存在，直接跳转到结束处理
     if (u == NULL) {
         goto noupstream;
     }
 
+    // 如果存在已解析的上下文，清理它
     if (u->resolved && u->resolved->ctx) {
         ngx_resolve_name_done(u->resolved->ctx);
         u->resolved->ctx = NULL;
     }
 
+    // 获取对等连接
     pc = u->peer.connection;
 
+    // 更新状态信息
     if (u->state) {
+        // 如果响应时间未设置，计算并设置
         if (u->state->response_time == (ngx_msec_t) -1) {
             u->state->response_time = ngx_current_msec - u->start_time;
         }
 
+        // 如果存在对等连接，更新接收和发送的字节数
         if (pc) {
             u->state->bytes_received = u->received;
             u->state->bytes_sent = pc->sent;
         }
     }
 
+    // 释放对等连接资源
     if (u->peer.free && u->peer.sockaddr) {
         state = 0;
 
+        // 如果是UDP连接且发生读写错误，标记为失败
         if (pc && pc->type == SOCK_DGRAM
             && (pc->read->error || pc->write->error))
         {
             state = NGX_PEER_FAILED;
         }
 
+        // 调用释放函数
         u->peer.free(&u->peer, u->peer.data, state);
         u->peer.sockaddr = NULL;
     }
 
+    // 关闭上游连接
     if (pc) {
         ngx_log_debug1(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
                        "close stream proxy upstream connection: %d", pc->fd);
 
 #if (NGX_STREAM_SSL)
+        // 如果是SSL连接，进行特殊处理
         if (pc->ssl) {
             pc->ssl->no_wait_shutdown = 1;
             (void) ngx_ssl_shutdown(pc);
         }
 #endif
 
+        // 关闭连接
         ngx_close_connection(pc);
         u->peer.connection = NULL;
     }
 
 noupstream:
 
+    // 结束会话
     ngx_stream_finalize_session(s, rc);
 }
 
@@ -2351,6 +2562,7 @@ ngx_stream_proxy_set_ssl(ngx_conf_t *cf, ngx_stream_proxy_srv_conf_t *pscf)
 #endif
 
 
+// 处理proxy_pass指令的函数
 static char *
 ngx_stream_proxy_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
@@ -2362,16 +2574,20 @@ ngx_stream_proxy_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_stream_core_srv_conf_t          *cscf;
     ngx_stream_compile_complex_value_t   ccv;
 
+    // 检查是否已经配置了upstream
     if (pscf->upstream || pscf->upstream_value) {
         return "is duplicate";
     }
 
+    // 获取核心配置
     cscf = ngx_stream_conf_get_module_srv_conf(cf, ngx_stream_core_module);
 
+    // 设置处理函数
     cscf->handler = ngx_stream_proxy_handler;
 
     value = cf->args->elts;
 
+    // 获取URL参数
     url = &value[1];
 
     ngx_memzero(&ccv, sizeof(ngx_stream_compile_complex_value_t));
@@ -2380,10 +2596,12 @@ ngx_stream_proxy_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ccv.value = url;
     ccv.complex_value = &cv;
 
+    // 编译复杂值
     if (ngx_stream_compile_complex_value(&ccv) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
+    // 如果是变量
     if (cv.lengths) {
         pscf->upstream_value = ngx_palloc(cf->pool,
                                           sizeof(ngx_stream_complex_value_t));
@@ -2396,11 +2614,13 @@ ngx_stream_proxy_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_OK;
     }
 
+    // 如果是静态URL
     ngx_memzero(&u, sizeof(ngx_url_t));
 
     u.url = *url;
     u.no_resolve = 1;
 
+    // 添加upstream
     pscf->upstream = ngx_stream_upstream_add(cf, &u, 0);
     if (pscf->upstream == NULL) {
         return NGX_CONF_ERROR;

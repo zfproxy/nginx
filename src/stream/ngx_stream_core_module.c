@@ -4,37 +4,227 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_core_module.c
+ *
+ * 该模块实现了Nginx的Stream核心功能，为Stream模块提供基础设施和核心处理逻辑。
+ *
+ * 支持的功能:
+ * 1. 处理TCP和UDP连接
+ * 2. 实现Stream处理的各个阶段(如预读、内容处理等)
+ * 3. 管理上游服务器连接
+ * 4. 提供负载均衡功能
+ * 5. 支持SSL/TLS加密
+ * 6. 实现访问日志记录
+ * 7. 提供变量支持，用于动态配置和日志
+ *
+ * 支持的指令:
+ * - listen: 配置监听的地址和端口
+ *   语法: listen address:port [ssl] [udp] [proxy_protocol] [backlog=number] [rcvbuf=size] [sndbuf=size];
+ *   上下文: server
+ * 
+ * - server: 定义一个服务器块
+ *   语法: server { ... }
+ *   上下文: stream
+ *
+ * - resolver: 设置DNS解析器
+ *   语法: resolver address ... [valid=time] [ipv6=on|off];
+ *   上下文: stream, server
+ *
+ * - resolver_timeout: 设置DNS解析超时时间
+ *   语法: resolver_timeout time;
+ *   上下文: stream, server
+ *
+ * - proxy_protocol: 启用或禁用PROXY协议支持
+ *   语法: proxy_protocol on|off;
+ *   上下文: server
+ *
+ * 相关变量:
+ * - $binary_remote_addr: 客户端地址的二进制形式
+ * - $remote_addr: 客户端地址
+ * - $remote_port: 客户端端口
+ * - $server_addr: 接受请求的服务器地址
+ * - $server_port: 接受请求的服务器端口
+ * - $protocol: 使用的协议(TCP或UDP)
+ *
+ * 使用注意点:
+ * 1. 合理配置监听端口，避免与其他服务冲突
+ * 2. 在使用SSL/TLS时，确保正确配置证书和密钥
+ * 3. 注意UDP和TCP处理的区别，特别是在会话持久性方面
+ * 4. 合理设置DNS解析器，以确保上游服务器的正确解析
+ * 5. 在使用PROXY协议时，确保上游服务器也支持该协议
+ * 6. 注意变量的使用可能会对性能产生影响，特别是在高并发场景下
+ * 7. 合理配置缓冲区大小，以优化性能和资源使用
+ * 8. 在处理大量并发连接时，可能需要调整系统的文件描述符限制
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
 
+/*
+ * 检查连接是否支持预读取(peek)操作
+ * 
+ * @param c 连接对象
+ * @return 如果支持预读取则返回非零值,否则返回0
+ */
 static ngx_uint_t ngx_stream_preread_can_peek(ngx_connection_t *c);
+/*
+ * 执行流会话的预读取(peek)操作
+ *
+ * @param s 流会话对象
+ * @param ph 阶段处理器
+ * @return NGX_OK 成功执行预读取
+ *         NGX_DECLINED 无数据可预读或不支持预读
+ *         NGX_ERROR 发生错误
+ */
 static ngx_int_t ngx_stream_preread_peek(ngx_stream_session_t *s,
     ngx_stream_phase_handler_t *ph);
+/*
+ * 执行流会话的预读取操作
+ *
+ * @param s 流会话对象
+ * @param ph 阶段处理器
+ * @return NGX_OK 成功执行预读取
+ *         NGX_DECLINED 无数据可预读或不支持预读
+ *         NGX_ERROR 发生错误
+ */
 static ngx_int_t ngx_stream_preread(ngx_stream_session_t *s,
     ngx_stream_phase_handler_t *ph);
+/*
+ * 执行流模块的预配置操作
+ *
+ * @param cf Nginx配置对象
+ * @return NGX_OK 预配置成功
+ *         NGX_ERROR 预配置失败
+ *
+ * 该函数在解析配置文件之前被调用,用于初始化一些必要的数据结构或执行其他预处理操作。
+ * 这可能包括设置默认值、分配内存或注册变量等。
+ */
 static ngx_int_t ngx_stream_core_preconfiguration(ngx_conf_t *cf);
+/*
+ * 创建流模块的主配置结构
+ *
+ * @param cf Nginx配置对象
+ * @return 新创建的主配置结构指针,如果创建失败则返回NULL
+ *
+ * 该函数负责为流模块分配和初始化主配置结构。
+ * 主配置结构通常包含影响整个流模块的全局设置。
+ */
 static void *ngx_stream_core_create_main_conf(ngx_conf_t *cf);
+/*
+ * 初始化流模块的主配置
+ *
+ * @param cf Nginx配置对象
+ * @param conf 主配置结构指针
+ * @return NGX_CONF_OK 初始化成功
+ *         NGX_CONF_ERROR 初始化失败
+ *
+ * 该函数在创建主配置结构后被调用，用于进行一些额外的初始化工作。
+ * 可能包括设置默认值、验证配置参数、初始化复杂数据结构等。
+ */
 static char *ngx_stream_core_init_main_conf(ngx_conf_t *cf, void *conf);
+/*
+ * 创建流模块的服务器配置结构
+ *
+ * @param cf Nginx配置对象
+ * @return 新创建的服务器配置结构指针，如果创建失败则返回NULL
+ *
+ * 该函数负责为每个stream server块分配和初始化服务器配置结构。
+ * 服务器配置结构通常包含特定于单个服务器的设置。
+ */
 static void *ngx_stream_core_create_srv_conf(ngx_conf_t *cf);
+/*
+ * 合并流模块的服务器配置
+ *
+ * @param cf Nginx配置对象
+ * @param parent 父配置结构指针
+ * @param child 子配置结构指针
+ * @return NGX_CONF_OK 合并成功
+ *         NGX_CONF_ERROR 合并失败
+ *
+ * 该函数负责将父配置和子配置合并到一起，通常用于处理继承和覆盖的配置项。
+ * 它会检查子配置中的每个选项，如果某个选项在子配置中未设置，则从父配置中继承。
+ */
 static char *ngx_stream_core_merge_srv_conf(ngx_conf_t *cf, void *parent,
     void *child);
+/*
+ * 处理流模块的错误日志配置
+ *
+ * @param cf Nginx配置对象
+ * @param cmd 当前正在处理的命令结构
+ * @param conf 配置结构指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误字符串
+ *
+ * 该函数用于解析和设置流模块的错误日志配置。
+ * 它可能会设置日志级别、日志文件路径等相关参数。
+ */
 static char *ngx_stream_core_error_log(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+/*
+ * 处理流模块的server配置块
+ *
+ * @param cf Nginx配置对象
+ * @param cmd 当前正在处理的命令结构
+ * @param conf 配置结构指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误字符串
+ *
+ * 该函数用于解析和设置流模块的server配置块。
+ * 它会创建一个新的server上下文，并设置相关的回调函数。
+ * 在server块中可以进一步配置监听端口、协议等服务器特定选项。
+ */
 static char *ngx_stream_core_server(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+/*
+ * 处理流模块的listen配置指令
+ *
+ * @param cf Nginx配置对象
+ * @param cmd 当前正在处理的命令结构
+ * @param conf 配置结构指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误字符串
+ *
+ * 该函数用于解析和设置流模块的listen指令。
+ * 它会处理监听地址、端口等相关参数，并设置相应的监听套接字。
+ */
 static char *ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+/*
+ * 处理流模块的server_name配置指令
+ *
+ * @param cf Nginx配置对象
+ * @param cmd 当前正在处理的命令结构
+ * @param conf 配置结构指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误字符串
+ *
+ * 该函数用于解析和设置流模块的server_name指令。
+ * 它可能会处理服务器名称的设置，用于虚拟主机的配置。
+ */
 static char *ngx_stream_core_server_name(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+/*
+ * 处理流模块的resolver配置指令
+ *
+ * @param cf Nginx配置对象
+ * @param cmd 当前正在处理的命令结构
+ * @param conf 配置结构指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误字符串
+ *
+ * 该函数用于解析和设置流模块的DNS解析器配置。
+ * 它可能会处理DNS服务器地址、超时时间等相关参数。
+ */
 static char *ngx_stream_core_resolver(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
 
+/*
+ * 定义流模块的核心命令数组
+ * 这个数组包含了流模块支持的所有配置指令
+ */
 static ngx_command_t  ngx_stream_core_commands[] = {
 
+    /* 设置变量哈希表的最大大小 */
     { ngx_string("variables_hash_max_size"),
       NGX_STREAM_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -42,6 +232,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_main_conf_t, variables_hash_max_size),
       NULL },
 
+    /* 设置变量哈希表的桶大小 */
     { ngx_string("variables_hash_bucket_size"),
       NGX_STREAM_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -49,6 +240,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_main_conf_t, variables_hash_bucket_size),
       NULL },
 
+    /* 设置服务器名称哈希表的最大大小 */
     { ngx_string("server_names_hash_max_size"),
       NGX_STREAM_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -56,6 +248,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_main_conf_t, server_names_hash_max_size),
       NULL },
 
+    /* 设置服务器名称哈希表的桶大小 */
     { ngx_string("server_names_hash_bucket_size"),
       NGX_STREAM_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
@@ -63,6 +256,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_main_conf_t, server_names_hash_bucket_size),
       NULL },
 
+    /* 定义服务器块 */
     { ngx_string("server"),
       NGX_STREAM_MAIN_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
       ngx_stream_core_server,
@@ -70,6 +264,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       0,
       NULL },
 
+    /* 设置监听地址和端口 */
     { ngx_string("listen"),
       NGX_STREAM_SRV_CONF|NGX_CONF_1MORE,
       ngx_stream_core_listen,
@@ -77,6 +272,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       0,
       NULL },
 
+    /* 设置服务器名称 */
     { ngx_string("server_name"),
       NGX_STREAM_SRV_CONF|NGX_CONF_1MORE,
       ngx_stream_core_server_name,
@@ -84,6 +280,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       0,
       NULL },
 
+    /* 配置错误日志 */
     { ngx_string("error_log"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_1MORE,
       ngx_stream_core_error_log,
@@ -91,6 +288,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       0,
       NULL },
 
+    /* 设置DNS解析器 */
     { ngx_string("resolver"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_1MORE,
       ngx_stream_core_resolver,
@@ -98,6 +296,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       0,
       NULL },
 
+    /* 设置DNS解析超时时间 */
     { ngx_string("resolver_timeout"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_msec_slot,
@@ -105,6 +304,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_srv_conf_t, resolver_timeout),
       NULL },
 
+    /* 设置代理协议超时时间 */
     { ngx_string("proxy_protocol_timeout"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_msec_slot,
@@ -112,6 +312,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_srv_conf_t, proxy_protocol_timeout),
       NULL },
 
+    /* 启用或禁用TCP_NODELAY选项 */
     { ngx_string("tcp_nodelay"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -119,6 +320,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_srv_conf_t, tcp_nodelay),
       NULL },
 
+    /* 设置预读缓冲区大小 */
     { ngx_string("preread_buffer_size"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_size_slot,
@@ -126,6 +328,7 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_srv_conf_t, preread_buffer_size),
       NULL },
 
+    /* 设置预读超时时间 */
     { ngx_string("preread_timeout"),
       NGX_STREAM_MAIN_CONF|NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_msec_slot,
@@ -133,7 +336,8 @@ static ngx_command_t  ngx_stream_core_commands[] = {
       offsetof(ngx_stream_core_srv_conf_t, preread_timeout),
       NULL },
 
-      ngx_null_command
+    /* 命令数组结束标志 */
+    ngx_null_command
 };
 
 

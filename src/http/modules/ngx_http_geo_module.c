@@ -4,108 +4,168 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_geo_module.c
+ *
+ * 该模块提供基于客户端IP地址的地理位置匹配功能。
+ *
+ * 支持的功能：
+ * 1. 根据IP地址范围匹配地理位置信息
+ * 2. 支持IPv4和IPv6地址
+ * 3. 使用基数树和红黑树进行高效查找
+ * 4. 可配置默认值
+ *
+ * 支持的指令：
+ * - geo [$address] $variable { ... }：定义一个geo块，用于配置IP地址与变量值的映射
+ *
+ * 支持的变量：
+ * - $variable：在geo块中定义的变量，其值根据客户端IP地址动态设置
+ *
+ * 使用注意点：
+ * 1. geo指令只能在http块中使用
+ * 2. 可以使用CIDR表示法或IP地址范围来定义匹配规则
+ * 3. 大型规则集可能会增加内存使用，建议适度使用
+ * 4. 对于频繁变化的地理位置数据，考虑使用外部数据源结合ngx_http_geoip_module
+ * 5. 确保IP地址范围不重叠，以避免意外结果
+ */
+
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+// 定义IP地址范围结构
 typedef struct {
-    ngx_http_variable_value_t       *value;
-    u_short                          start;
-    u_short                          end;
+    ngx_http_variable_value_t       *value;  // 与该范围关联的值
+    u_short                          start;  // 范围起始
+    u_short                          end;    // 范围结束
 } ngx_http_geo_range_t;
 
 
+// 定义用于存储IPv4和IPv6基数树的结构
 typedef struct {
-    ngx_radix_tree_t                *tree;
+    ngx_radix_tree_t                *tree;   // IPv4基数树
 #if (NGX_HAVE_INET6)
-    ngx_radix_tree_t                *tree6;
+    ngx_radix_tree_t                *tree6;  // IPv6基数树（如果支持）
 #endif
 } ngx_http_geo_trees_t;
 
 
+// 定义高位IP地址范围结构
 typedef struct {
-    ngx_http_geo_range_t           **low;
-    ngx_http_variable_value_t       *default_value;
+    ngx_http_geo_range_t           **low;    // 低位范围数组
+    ngx_http_variable_value_t       *default_value;  // 默认值
 } ngx_http_geo_high_ranges_t;
 
 
+// 定义用于存储变量值的红黑树节点结构
 typedef struct {
-    ngx_str_node_t                   sn;
-    ngx_http_variable_value_t       *value;
-    size_t                           offset;
+    ngx_str_node_t                   sn;     // 字符串节点
+    ngx_http_variable_value_t       *value;  // 变量值
+    size_t                           offset; // 偏移量
 } ngx_http_geo_variable_value_node_t;
 
 
+// 定义geo模块的主要配置上下文结构
 typedef struct {
-    ngx_http_variable_value_t       *value;
-    ngx_str_t                       *net;
-    ngx_http_geo_high_ranges_t       high;
-    ngx_radix_tree_t                *tree;
+    ngx_http_variable_value_t       *value;  // 当前值
+    ngx_str_t                       *net;    // 网络地址
+    ngx_http_geo_high_ranges_t       high;   // 高位范围
+    ngx_radix_tree_t                *tree;   // IPv4基数树
 #if (NGX_HAVE_INET6)
-    ngx_radix_tree_t                *tree6;
+    ngx_radix_tree_t                *tree6;  // IPv6基数树（如果支持）
 #endif
-    ngx_rbtree_t                     rbtree;
-    ngx_rbtree_node_t                sentinel;
-    ngx_array_t                     *proxies;
-    ngx_pool_t                      *pool;
-    ngx_pool_t                      *temp_pool;
+    ngx_rbtree_t                     rbtree; // 红黑树
+    ngx_rbtree_node_t                sentinel; // 红黑树哨兵节点
+    ngx_array_t                     *proxies; // 代理数组
+    ngx_pool_t                      *pool;    // 内存池
+    ngx_pool_t                      *temp_pool; // 临时内存池
 
-    size_t                           data_size;
+    size_t                           data_size; // 数据大小
 
-    ngx_str_t                        include_name;
-    ngx_uint_t                       includes;
-    ngx_uint_t                       entries;
+    ngx_str_t                        include_name; // 包含文件名
+    ngx_uint_t                       includes;     // 包含计数
+    ngx_uint_t                       entries;      // 条目数
 
-    unsigned                         ranges:1;
-    unsigned                         outside_entries:1;
-    unsigned                         allow_binary_include:1;
-    unsigned                         binary_include:1;
-    unsigned                         proxy_recursive:1;
+    unsigned                         ranges:1;     // 是否使用范围
+    unsigned                         outside_entries:1; // 是否有外部条目
+    unsigned                         allow_binary_include:1; // 是否允许二进制包含
+    unsigned                         binary_include:1;      // 是否为二进制包含
+    unsigned                         proxy_recursive:1;     // 是否递归代理
 } ngx_http_geo_conf_ctx_t;
 
 
 typedef struct {
     union {
-        ngx_http_geo_trees_t         trees;
-        ngx_http_geo_high_ranges_t   high;
+        ngx_http_geo_trees_t         trees;    // 用于存储基数树的结构
+        ngx_http_geo_high_ranges_t   high;     // 用于存储高位IP地址范围的结构
     } u;
 
-    ngx_array_t                     *proxies;
-    unsigned                         proxy_recursive:1;
+    ngx_array_t                     *proxies;  // 存储代理IP地址的数组
+    unsigned                         proxy_recursive:1;  // 标志位，表示是否递归处理代理
 
-    ngx_int_t                        index;
+    ngx_int_t                        index;    // 变量索引
 } ngx_http_geo_ctx_t;
 
 
+// 根据请求获取地理位置信息
 static ngx_int_t ngx_http_geo_addr(ngx_http_request_t *r,
     ngx_http_geo_ctx_t *ctx, ngx_addr_t *addr);
+
+// 获取真实的客户端IP地址
 static ngx_int_t ngx_http_geo_real_addr(ngx_http_request_t *r,
     ngx_http_geo_ctx_t *ctx, ngx_addr_t *addr);
+
+// 处理geo配置块
 static char *ngx_http_geo_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+// 处理geo指令的主函数
 static char *ngx_http_geo(ngx_conf_t *cf, ngx_command_t *dummy, void *conf);
+
+// 处理IP地址范围的函数
 static char *ngx_http_geo_range(ngx_conf_t *cf, ngx_http_geo_conf_ctx_t *ctx,
     ngx_str_t *value);
+// 添加IP地址范围到地理位置配置中
 static char *ngx_http_geo_add_range(ngx_conf_t *cf,
     ngx_http_geo_conf_ctx_t *ctx, in_addr_t start, in_addr_t end);
+
+// 从地理位置配置中删除指定IP地址范围
 static ngx_uint_t ngx_http_geo_delete_range(ngx_conf_t *cf,
     ngx_http_geo_conf_ctx_t *ctx, in_addr_t start, in_addr_t end);
+
+// 处理CIDR格式的IP地址
 static char *ngx_http_geo_cidr(ngx_conf_t *cf, ngx_http_geo_conf_ctx_t *ctx,
     ngx_str_t *value);
+
+// 添加CIDR格式的IP地址到地理位置配置中
 static char *ngx_http_geo_cidr_add(ngx_conf_t *cf, ngx_http_geo_conf_ctx_t *ctx,
     ngx_cidr_t *cidr, ngx_str_t *value, ngx_str_t *net);
+
+// 获取地理位置配置中的变量值
 static ngx_http_variable_value_t *ngx_http_geo_value(ngx_conf_t *cf,
     ngx_http_geo_conf_ctx_t *ctx, ngx_str_t *value);
+
+// 添加代理IP地址到地理位置配置中
 static char *ngx_http_geo_add_proxy(ngx_conf_t *cf,
     ngx_http_geo_conf_ctx_t *ctx, ngx_cidr_t *cidr);
+
+// 解析CIDR格式的IP地址
 static ngx_int_t ngx_http_geo_cidr_value(ngx_conf_t *cf, ngx_str_t *net,
     ngx_cidr_t *cidr);
+
+// 包含其他地理位置配置文件
 static char *ngx_http_geo_include(ngx_conf_t *cf, ngx_http_geo_conf_ctx_t *ctx,
     ngx_str_t *name);
+
+// 包含二进制格式的地理位置配置文件
 static ngx_int_t ngx_http_geo_include_binary_base(ngx_conf_t *cf,
     ngx_http_geo_conf_ctx_t *ctx, ngx_str_t *name);
+
+// 创建二进制格式的地理位置配置
 static void ngx_http_geo_create_binary_base(ngx_http_geo_conf_ctx_t *ctx);
+
+// 复制地理位置配置中的值
 static u_char *ngx_http_geo_copy_values(u_char *base, u_char *p,
     ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
 
@@ -1650,6 +1710,18 @@ ngx_http_geo_create_binary_base(ngx_http_geo_conf_ctx_t *ctx)
 }
 
 
+/**
+ * @brief 复制地理位置变量值到内存映射文件
+ *
+ * 该函数用于将地理位置模块中的变量值复制到内存映射文件中。
+ * 它递归遍历红黑树，将每个节点的值复制到指定的内存位置。
+ *
+ * @param base 内存映射文件的基地址
+ * @param p 当前写入位置的指针
+ * @param node 当前处理的红黑树节点
+ * @param sentinel 红黑树的哨兵节点
+ * @return 更新后的写入位置指针
+ */
 static u_char *
 ngx_http_geo_copy_values(u_char *base, u_char *p, ngx_rbtree_node_t *node,
     ngx_rbtree_node_t *sentinel)

@@ -4,31 +4,56 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_setproctitle.c
+ *
+ * 该文件实现了Nginx在Unix系统上设置进程标题的功能。
+ *
+ * 支持的功能:
+ * 1. 初始化进程标题设置环境
+ * 2. 动态修改进程标题
+ * 3. 在Linux和Solaris系统上通过修改argv[0]来设置进程标题
+ * 4. 处理环境变量和命令行参数的内存布局
+ * 5. 兼容不同操作系统的进程标题显示特性
+ *
+ * 使用注意点:
+ * 1. 需要在程序启动早期调用ngx_init_setproctitle()进行初始化
+ * 2. 设置进程标题可能会影响原有的环境变量，需谨慎处理
+ * 3. 新的进程标题长度不应超过可用内存空间
+ * 4. 在Solaris系统上，标准ps命令可能无法显示修改后的标题，需使用特定命令
+ * 5. 进程标题的修改可能影响系统监控工具的行为，需要相应调整
+ * 6. 在容器化环境中使用时，需要注意潜在的兼容性问题
+ * 7. 修改进程标题可能会影响某些依赖于原始命令行的调试工具
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 
 
 #if (NGX_SETPROCTITLE_USES_ENV)
-
 /*
- * To change the process title in Linux and Solaris we have to set argv[1]
- * to NULL and to copy the title to the same place where the argv[0] points to.
- * However, argv[0] may be too small to hold a new title.  Fortunately, Linux
- * and Solaris store argv[] and environ[] one after another.  So we should
- * ensure that is the continuous memory and then we allocate the new memory
- * for environ[] and copy it.  After this we could use the memory starting
- * from argv[0] for our process title.
+ * 在Linux和Solaris系统上修改进程标题的方法:
+ * 1. 将argv[1]设置为NULL
+ * 2. 将新标题复制到argv[0]指向的位置
+ * 
+ * 注意事项:
+ * - argv[0]可能太小，无法容纳新标题
+ * - Linux和Solaris将argv[]和environ[]连续存储
+ * - 需确保内存连续性，然后为environ[]分配新内存并复制
+ * - 之后可以使用从argv[0]开始的内存来存储新的进程标题
  *
- * The Solaris's standard /bin/ps does not show the changed process title.
- * You have to use "/usr/ucb/ps -w" instead.  Besides, the UCB ps does not
- * show a new title if its length less than the origin command line length.
- * To avoid it we append to a new title the origin command line in the
- * parenthesis.
+ * Solaris特殊情况:
+ * - 标准/bin/ps命令无法显示修改后的进程标题
+ * - 需使用"/usr/ucb/ps -w"命令
+ * - UCB ps在新标题长度小于原命令行长度时不显示新标题
+ * - 为避免这种情况，我们在新标题后附加原始命令行(括号内)
  */
 
+// 声明外部环境变量数组
 extern char **environ;
 
+// 定义静态变量，用于存储argv数组的末尾位置
 static char *ngx_os_argv_last;
 
 ngx_int_t

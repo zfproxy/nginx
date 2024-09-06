@@ -4,20 +4,63 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_write_filter_module.c
+ *
+ * 该模块实现了 Nginx 流处理模块中的写入过滤器功能。
+ *
+ * 支持的功能：
+ * 1. 处理来自上游和下游的数据流
+ * 2. 对数据进行过滤和处理
+ * 3. 管理写入缓冲区
+ *
+ * 支持的指令：
+ * 该模块没有直接暴露给配置文件的指令。
+ *
+ * 支持的变量：
+ * 该模块没有定义特定的变量。
+ *
+ * 使用注意点：
+ * 1. 该模块作为 Nginx 流处理的核心组件之一，自动参与到数据处理流程中。
+ * 2. 开发者在编写自定义流模块时，可以通过修改或扩展该模块来实现特定的数据处理逻辑。
+ * 3. 在处理大量数据时，需要注意内存使用和性能优化。
+ * 4. 该模块与其他流处理模块紧密协作，修改时需谨慎，以避免影响整体功能。
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
 
+/**
+ * @brief 写入过滤器上下文结构体
+ *
+ * 该结构体用于存储写入过滤器的上下文信息，包括来自上游和下游的数据链
+ */
 typedef struct {
-    ngx_chain_t  *from_upstream;
-    ngx_chain_t  *from_downstream;
+    ngx_chain_t  *from_upstream;    /* 来自上游的数据链 */
+    ngx_chain_t  *from_downstream;  /* 来自下游的数据链 */
 } ngx_stream_write_filter_ctx_t;
 
 
+/**
+ * @brief 写入过滤器主函数
+ *
+ * @param s 流会话
+ * @param in 输入数据链
+ * @param from_upstream 数据是否来自上游
+ * @return ngx_int_t 处理结果
+ */
 static ngx_int_t ngx_stream_write_filter(ngx_stream_session_t *s,
     ngx_chain_t *in, ngx_uint_t from_upstream);
+
+/**
+ * @brief 写入过滤器初始化函数
+ *
+ * @param cf 配置上下文
+ * @return ngx_int_t 初始化结果
+ */
 static ngx_int_t ngx_stream_write_filter_init(ngx_conf_t *cf);
 
 

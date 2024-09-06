@@ -5,140 +5,207 @@
  */
 
 
+/*
+ * ngx_http_grpc_module.c
+ *
+ * 该模块实现了Nginx作为gRPC代理的功能。
+ *
+ * 支持的功能:
+ * - 将HTTP/1.x请求转换为gRPC请求
+ * - 支持gRPC over HTTP/2
+ * - 支持SSL/TLS加密连接
+ * - 支持上游gRPC服务器的负载均衡
+ * - 支持gRPC流式传输
+ * - 处理gRPC状态码和错误
+ *
+ * 支持的指令:
+ * - grpc_pass: 设置gRPC上游服务器
+ *   语法: grpc_pass grpc://address;
+ *   上下文: location
+ *
+ * - grpc_set_header: 设置传递给gRPC服务器的请求头
+ *   语法: grpc_set_header field value;
+ *   上下文: http, server, location
+ *
+ * - grpc_hide_header: 隐藏从gRPC服务器接收到的响应头
+ *   语法: grpc_hide_header field;
+ *   上下文: http, server, location
+ *
+ * - grpc_pass_header: 允许将被禁用的头部传递给客户端
+ *   语法: grpc_pass_header field;
+ *   上下文: http, server, location
+ *
+ * - grpc_bind: 指定用于连接gRPC服务器的本地IP地址
+ *   语法: grpc_bind address [transparent] | off;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * - $grpc_status: gRPC响应状态码
+ *
+ * 使用注意点:
+ * 1. 确保上游gRPC服务器正确配置并支持HTTP/2
+ * 2. 使用SSL/TLS时，需要正确配置证书和密钥
+ * 3. 注意处理gRPC特定的状态码和错误消息
+ * 4. 合理设置超时和重试策略，避免长时间阻塞
+ * 5. 监控gRPC连接的性能和错误率
+ * 6. 考虑使用压缩来优化传输效率
+ * 7. 注意处理大型流式响应时的内存使用
+ * 8. 确保正确配置HTTP/2设置，如并发流的数量
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-
+/* 
+* ngx_http_grpc_headers_t 结构定义
+* 用于存储和处理gRPC请求的HTTP头部信息
+*/
 typedef struct {
-    ngx_array_t               *flushes;
-    ngx_array_t               *lengths;
-    ngx_array_t               *values;
-    ngx_hash_t                 hash;
+    ngx_array_t               *flushes;   // 存储需要刷新的头部
+    ngx_array_t               *lengths;   // 存储头部名称和值的长度
+    ngx_array_t               *values;    // 存储头部的值
+    ngx_hash_t                 hash;      // 用于快速查找头部的哈希表
 } ngx_http_grpc_headers_t;
 
 
 typedef struct {
-    ngx_http_upstream_conf_t   upstream;
+    ngx_http_upstream_conf_t   upstream;  // 上游配置结构体
 
-    ngx_http_grpc_headers_t    headers;
-    ngx_array_t               *headers_source;
+    ngx_http_grpc_headers_t    headers;   // gRPC头部信息
+    ngx_array_t               *headers_source;  // 头部源数组
 
-    ngx_str_t                  host;
-    ngx_uint_t                 host_set;
+    ngx_str_t                  host;      // 主机名
+    ngx_uint_t                 host_set;  // 主机名是否设置标志
 
-    ngx_array_t               *grpc_lengths;
-    ngx_array_t               *grpc_values;
+    ngx_array_t               *grpc_lengths;  // gRPC长度数组
+    ngx_array_t               *grpc_values;   // gRPC值数组
 
 #if (NGX_HTTP_SSL)
-    ngx_uint_t                 ssl;
-    ngx_uint_t                 ssl_protocols;
-    ngx_str_t                  ssl_ciphers;
-    ngx_uint_t                 ssl_verify_depth;
-    ngx_str_t                  ssl_trusted_certificate;
-    ngx_str_t                  ssl_crl;
-    ngx_array_t               *ssl_conf_commands;
+    ngx_uint_t                 ssl;       // SSL启用标志
+    ngx_uint_t                 ssl_protocols;  // SSL协议版本
+    ngx_str_t                  ssl_ciphers;    // SSL加密套件
+    ngx_uint_t                 ssl_verify_depth;  // SSL验证深度
+    ngx_str_t                  ssl_trusted_certificate;  // SSL信任证书
+    ngx_str_t                  ssl_crl;         // SSL证书吊销列表
+    ngx_array_t               *ssl_conf_commands;  // SSL配置命令数组
 #endif
 } ngx_http_grpc_loc_conf_t;
 
 
+// 定义一个枚举类型,用于表示gRPC帧解析的不同状态
 typedef enum {
-    ngx_http_grpc_st_start = 0,
-    ngx_http_grpc_st_length_2,
-    ngx_http_grpc_st_length_3,
-    ngx_http_grpc_st_type,
-    ngx_http_grpc_st_flags,
-    ngx_http_grpc_st_stream_id,
-    ngx_http_grpc_st_stream_id_2,
-    ngx_http_grpc_st_stream_id_3,
-    ngx_http_grpc_st_stream_id_4,
-    ngx_http_grpc_st_payload,
-    ngx_http_grpc_st_padding
+    ngx_http_grpc_st_start = 0,       // gRPC帧解析的起始状态
+    ngx_http_grpc_st_length_2,        // 解析帧长度的第二个字节
+    ngx_http_grpc_st_length_3,        // 解析帧长度的第三个字节
+    ngx_http_grpc_st_type,            // 解析帧类型
+    ngx_http_grpc_st_flags,           // 解析帧标志
+    ngx_http_grpc_st_stream_id,       // 解析流ID的第一个字节
+    ngx_http_grpc_st_stream_id_2,     // 解析流ID的第二个字节
+    ngx_http_grpc_st_stream_id_3,     // 解析流ID的第三个字节
+    ngx_http_grpc_st_stream_id_4,     // 解析流ID的第四个字节
+    ngx_http_grpc_st_payload,         // 解析帧负载
+    ngx_http_grpc_st_padding          // 解析帧填充
 } ngx_http_grpc_state_e;
 
 
+/**
+ * @brief 定义gRPC连接相关的结构体
+ *
+ * 这个结构体用于存储gRPC连接的各种参数和状态信息，
+ * 包括窗口大小、流ID等重要数据。
+ */
 typedef struct {
-    size_t                     init_window;
-    size_t                     send_window;
-    size_t                     recv_window;
-    ngx_uint_t                 last_stream_id;
+    size_t                     init_window;      // 初始窗口大小
+    size_t                     send_window;      // 发送窗口大小
+    size_t                     recv_window;      // 接收窗口大小
+    ngx_uint_t                 last_stream_id;   // 最后一个流的ID
 } ngx_http_grpc_conn_t;
 
 
+/**
+ * @brief 定义gRPC请求相关的结构体
+ *
+ * 这个结构体用于存储gRPC请求的各种参数和状态信息，
+ * 包括状态机状态、缓冲链表、窗口大小等重要数据。
+ */
 typedef struct {
-    ngx_http_grpc_state_e      state;
-    ngx_uint_t                 frame_state;
-    ngx_uint_t                 fragment_state;
+    ngx_http_grpc_state_e      state;           // gRPC状态机的当前状态
+    ngx_uint_t                 frame_state;     // 帧解析状态
+    ngx_uint_t                 fragment_state;  // 分片解析状态
 
-    ngx_chain_t               *in;
-    ngx_chain_t               *out;
-    ngx_chain_t               *free;
-    ngx_chain_t               *busy;
+    ngx_chain_t               *in;              // 输入缓冲链表
+    ngx_chain_t               *out;             // 输出缓冲链表
+    ngx_chain_t               *free;            // 空闲缓冲链表
+    ngx_chain_t               *busy;            // 正在使用的缓冲链表
 
-    ngx_http_grpc_conn_t      *connection;
+    ngx_http_grpc_conn_t      *connection;      // gRPC连接相关信息
 
-    ngx_uint_t                 id;
+    ngx_uint_t                 id;              // 请求ID
 
-    ngx_uint_t                 pings;
-    ngx_uint_t                 settings;
+    ngx_uint_t                 pings;           // PING帧计数
+    ngx_uint_t                 settings;        // SETTINGS帧计数
 
-    off_t                      length;
+    off_t                      length;          // 当前帧的长度
 
-    ssize_t                    send_window;
-    size_t                     recv_window;
+    ssize_t                    send_window;     // 发送窗口大小
+    size_t                     recv_window;     // 接收窗口大小
 
-    size_t                     rest;
-    ngx_uint_t                 stream_id;
-    u_char                     type;
-    u_char                     flags;
-    u_char                     padding;
+    size_t                     rest;            // 剩余待处理的数据长度
+    ngx_uint_t                 stream_id;       // 当前流ID
+    u_char                     type;            // 当前帧类型
+    u_char                     flags;           // 当前帧标志
+    u_char                     padding;         // 填充长度
 
-    ngx_uint_t                 error;
-    ngx_uint_t                 window_update;
+    ngx_uint_t                 error;           // 错误码
+    ngx_uint_t                 window_update;   // 窗口更新值
 
-    ngx_uint_t                 setting_id;
-    ngx_uint_t                 setting_value;
+    ngx_uint_t                 setting_id;      // SETTINGS帧中的设置ID
+    ngx_uint_t                 setting_value;   // SETTINGS帧中的设置值
 
-    u_char                     ping_data[8];
+    u_char                     ping_data[8];    // PING帧的数据
 
-    ngx_uint_t                 index;
-    ngx_str_t                  name;
-    ngx_str_t                  value;
+    ngx_uint_t                 index;           // HPACK动态表索引
+    ngx_str_t                  name;            // 头部名称
+    ngx_str_t                  value;           // 头部值
 
-    u_char                    *field_end;
-    size_t                     field_length;
-    size_t                     field_rest;
-    u_char                     field_state;
+    u_char                    *field_end;       // 当前字段结束位置
+    size_t                     field_length;    // 当前字段长度
+    size_t                     field_rest;      // 当前字段剩余长度
+    u_char                     field_state;     // 字段解析状态
 
-    unsigned                   literal:1;
-    unsigned                   field_huffman:1;
+    unsigned                   literal:1;       // 是否为字面值编码
+    unsigned                   field_huffman:1; // 是否使用Huffman编码
 
-    unsigned                   header_sent:1;
-    unsigned                   output_closed:1;
-    unsigned                   output_blocked:1;
-    unsigned                   parsing_headers:1;
-    unsigned                   end_stream:1;
-    unsigned                   done:1;
-    unsigned                   status:1;
-    unsigned                   rst:1;
-    unsigned                   goaway:1;
+    unsigned                   header_sent:1;   // 头部是否已发送
+    unsigned                   output_closed:1; // 输出是否已关闭
+    unsigned                   output_blocked:1;// 输出是否被阻塞
+    unsigned                   parsing_headers:1; // 是否正在解析头部
+    unsigned                   end_stream:1;    // 是否为流的结束
+    unsigned                   done:1;          // 请求是否完成
+    unsigned                   status:1;        // 是否接收到状态码
+    unsigned                   rst:1;           // 是否接收到RST_STREAM帧
+    unsigned                   goaway:1;        // 是否接收到GOAWAY帧
 
-    ngx_http_request_t        *request;
+    ngx_http_request_t        *request;         // 关联的HTTP请求
 
-    ngx_str_t                  host;
+    ngx_str_t                  host;            // 主机名
 } ngx_http_grpc_ctx_t;
 
-
+// 定义gRPC帧头结构体
+// 该结构体用于表示gRPC协议中的帧头格式
+// 每个字段对应帧头中的一个字节或多个字节
 typedef struct {
-    u_char                     length_0;
-    u_char                     length_1;
-    u_char                     length_2;
-    u_char                     type;
-    u_char                     flags;
-    u_char                     stream_id_0;
-    u_char                     stream_id_1;
-    u_char                     stream_id_2;
-    u_char                     stream_id_3;
+    u_char                     length_0;        // 帧长度的最高8位
+    u_char                     length_1;        // 帧长度的中间8位
+    u_char                     length_2;        // 帧长度的最低8位
+    u_char                     type;            // 帧类型
+    u_char                     flags;           // 帧标志
+    u_char                     stream_id_0;     // 流标识符的最高8位
+    u_char                     stream_id_1;     // 流标识符的次高8位
+    u_char                     stream_id_2;     // 流标识符的次低8位
+    u_char                     stream_id_3;     // 流标识符的最低8位
 } ngx_http_grpc_frame_t;
 
 
@@ -205,17 +272,34 @@ static char *ngx_http_grpc_pass(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
 #if (NGX_HTTP_SSL)
+// 处理 gRPC SSL 密码文件配置的函数
+// cf: 配置上下文
+// cmd: 当前处理的命令
+// conf: 模块配置结构体
 static char *ngx_http_grpc_ssl_password_file(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
+// 检查 gRPC SSL 配置命令的函数
+// cf: 配置上下文
+// post: 后处理数据
+// data: 配置数据
 static char *ngx_http_grpc_ssl_conf_command_check(ngx_conf_t *cf, void *post,
     void *data);
+// 合并 gRPC SSL 配置的函数
+// cf: 配置上下文
+// conf: 当前配置
+// prev: 上一级配置
 static ngx_int_t ngx_http_grpc_merge_ssl(ngx_conf_t *cf,
     ngx_http_grpc_loc_conf_t *conf, ngx_http_grpc_loc_conf_t *prev);
+// 设置 gRPC SSL 配置的函数
+// cf: 配置上下文
+// glcf: gRPC 位置配置结构体
 static ngx_int_t ngx_http_grpc_set_ssl(ngx_conf_t *cf,
     ngx_http_grpc_loc_conf_t *glcf);
 #endif
 
 
+// 定义 gRPC 模块的 next_upstream 配置选项的位掩码数组
+// 用于指定在哪些情况下应尝试下一个上游服务器
 static ngx_conf_bitmask_t  ngx_http_grpc_next_upstream_masks[] = {
     { ngx_string("error"), NGX_HTTP_UPSTREAM_FT_ERROR },
     { ngx_string("timeout"), NGX_HTTP_UPSTREAM_FT_TIMEOUT },
@@ -235,6 +319,8 @@ static ngx_conf_bitmask_t  ngx_http_grpc_next_upstream_masks[] = {
 
 #if (NGX_HTTP_SSL)
 
+// 定义支持的SSL/TLS协议版本的位掩码数组
+// 用于配置gRPC连接可以使用的SSL/TLS协议版本
 static ngx_conf_bitmask_t  ngx_http_grpc_ssl_protocols[] = {
     { ngx_string("SSLv2"), NGX_SSL_SSLv2 },
     { ngx_string("SSLv3"), NGX_SSL_SSLv3 },

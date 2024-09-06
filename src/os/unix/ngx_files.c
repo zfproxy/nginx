@@ -5,17 +5,42 @@
  */
 
 
+/*
+ * ngx_files.c
+ *
+ * 该文件实现了Nginx的文件操作相关功能。
+ *
+ * 支持的功能:
+ * 1. 文件读取(同步和异步)
+ * 2. 文件写入(同步和异步)
+ * 3. 目录操作
+ * 4. 文件属性获取
+ * 5. 文件描述符操作
+ * 
+ * 使用注意点:
+ * 1. 文件操作可能会阻塞,影响性能,建议使用异步I/O
+ * 2. 大文件操作时注意内存使用
+ * 3. 文件路径使用相对路径时要小心
+ * 4. 错误处理要完善,避免资源泄露
+ * 5. 多线程环境下注意文件描述符的并发访问
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 
 
 #if (NGX_THREADS)
 #include <ngx_thread_pool.h>
+// 线程池读取处理函数
 static void ngx_thread_read_handler(void *data, ngx_log_t *log);
+// 线程池写入链到文件处理函数
 static void ngx_thread_write_chain_to_file_handler(void *data, ngx_log_t *log);
 #endif
 
+// 将链表转换为iovec结构
 static ngx_chain_t *ngx_chain_to_iovec(ngx_iovec_t *vec, ngx_chain_t *cl);
+// 使用writev系统调用写入文件
 static ssize_t ngx_writev_file(ngx_file_t *file, ngx_iovec_t *vec,
     off_t offset);
 

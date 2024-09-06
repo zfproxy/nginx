@@ -4,6 +4,36 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_pop3_handler.c
+ *
+ * 本文件实现了 Nginx 的 POP3 邮件服务器功能。
+ *
+ * 支持的功能:
+ * 1. 基本的 POP3 命令处理 (USER, PASS, LIST, RETR, DELE 等)
+ * 2. APOP 认证
+ * 3. STARTTLS 加密
+ * 4. CAPA 命令支持
+ * 5. AUTH 扩展认证机制
+ *
+ * 支持的指令:
+ * - pop3_auth: 设置允许的认证方法
+ * - pop3_capabilities: 自定义 CAPA 命令响应
+ * - pop3_client_buffer_size: 设置客户端缓冲区大小
+ *
+ * 相关变量:
+ * - $pop3_user: POP3 用户名
+ * - $pop3_passwd: POP3 密码 (仅用于日志)
+ * - $pop3_auth_method: 使用的认证方法
+ *
+ * 使用注意点:
+ * 1. 确保正确配置 SSL/TLS 证书，以支持 STARTTLS
+ * 2. 合理设置超时时间，防止连接长时间占用
+ * 3. 谨慎处理大型邮件，避免内存占用过高
+ * 4. 定期检查日志，监控异常登录尝试
+ * 5. 与后端邮件存储系统的集成需要额外配置
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

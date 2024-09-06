@@ -4,6 +4,46 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_log_module.c
+ *
+ * 该模块实现了Nginx的访问日志功能。
+ *
+ * 支持的功能:
+ * - 自定义日志格式
+ * - 条件日志记录
+ * - 缓冲日志写入
+ * - 日志文件循环
+ * - 压缩日志文件
+ * - 动态修改日志路径
+ *
+ * 支持的指令:
+ * - log_format: 定义日志格式
+ *   语法: log_format name [escape=default|json|none] string ...;
+ *   上下文: http
+ *
+ * - access_log: 设置访问日志的路径、格式和配置
+ *   语法: access_log path [format [buffer=size] [gzip[=level]] [flush=time] [if=condition]];
+ *   access_log off;
+ *   上下文: http, server, location, if in location, limit_except
+ *
+ * - open_log_file_cache: 配置打开日志文件的缓存
+ *   语法: open_log_file_cache max=N [inactive=time] [min_uses=N] [valid=time];
+ *   open_log_file_cache off;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * $bytes_sent            发送给客户端的总字节数
+ * $connection            连接的序列号
+ * $connection_requests   当前通过一个连接获得的请求数量
+ * $msec                  日志写入时间，单位为秒，精确到毫秒
+ * $pipe                  如果请求是通过HTTP流水线(pipelined)发送，则其值为"p"，否则为"."
+ * $request_length        请求的总长度（包括请求行，请求头和请求体）
+ * $request_time          请求处理时间，单位为秒，精确到毫秒
+ * $status                响应状态码
+ * $time_iso8601          ISO 8601标准格式下的本地时间
+ * $time_local            通用日志格式下的本地时间
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

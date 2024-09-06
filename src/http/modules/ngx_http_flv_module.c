@@ -4,11 +4,53 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_flv_module.c
+ *
+ * 该模块提供了对FLV（Flash Video）文件的支持。
+ * 它允许Nginx服务器以流媒体方式传输FLV文件，支持从指定时间点开始播放。
+ *
+ * 支持的功能:
+ * 1. 处理FLV文件请求
+ * 2. 支持从指定时间点开始播放（使用start参数）
+ * 3. 添加FLV文件头
+ * 4. 处理部分内容请求（支持Range头）
+ *
+ * 支持的指令:
+ * - flv
+ *   语法: flv;
+ *   上下文: location
+ *   描述: 启用FLV模块处理当前location的请求
+ *
+ * 支持的变量:
+ * 本模块未定义特定变量，但可以使用Nginx核心提供的标准变量。
+ *
+ * 使用注意点:
+ * 1. 确保正确配置MIME类型，通常为 application/x-flv
+ * 2. 使用start参数时，值应为毫秒
+ * 3. 建议配合ngx_http_mp4_module使用，以支持更多流媒体格式
+ * 4. 注意处理大文件时的性能影响
+ * 5. 考虑使用缓存来提高性能
+ */
+
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/**
+ * @brief 处理 flv 指令的函数
+ *
+ * 这个函数用于处理 nginx 配置文件中的 flv 指令。
+ * 当在 location 块中使用 flv 指令时，会调用此函数进行相应的设置。
+ *
+ * @param cf 指向 nginx 配置结构的指针
+ * @param cmd 指向当前命令结构的指针
+ * @param conf 指向模块配置结构的指针
+ * @return 成功时返回 NGX_CONF_OK，失败时返回错误信息字符串
+ */
 static char *ngx_http_flv(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 static ngx_command_t  ngx_http_flv_commands[] = {
@@ -24,6 +66,19 @@ static ngx_command_t  ngx_http_flv_commands[] = {
 };
 
 
+/**
+ * @brief FLV文件头
+ *
+ * 这是一个标准的FLV（Flash Video）文件头。
+ * 它包含以下信息：
+ * - "FLV": 文件类型标识符
+ * - \x1: 版本号（1）
+ * - \x5: 流信息标志（表示包含音频和视频）
+ * - \0\0\0\x9: 数据偏移（9字节）
+ * - \0\0\0\0: 前一个标签大小（初始为0）
+ *
+ * 这个头部会被添加到每个FLV响应的开始，以确保客户端能正确识别和处理FLV文件。
+ */
 static u_char  ngx_flv_header[] = "FLV\x1\x5\0\0\0\x9\0\0\0\0";
 
 
@@ -58,6 +113,18 @@ ngx_module_t  ngx_http_flv_module = {
 };
 
 
+/**
+ * @brief FLV请求处理函数
+ *
+ * 该函数用于处理FLV（Flash Video）文件的HTTP请求。
+ * 它负责解析请求，定位FLV文件，并发送适当的响应。
+ *
+ * @param r 指向当前HTTP请求结构的指针
+ * @return NGX_DECLINED 如果请求不应由此模块处理
+ *         NGX_HTTP_NOT_ALLOWED 如果请求方法不被允许
+ *         NGX_HTTP_INTERNAL_SERVER_ERROR 如果发生内部错误
+ *         其他 由下游函数返回的状态码
+ */
 static ngx_int_t
 ngx_http_flv_handler(ngx_http_request_t *r)
 {

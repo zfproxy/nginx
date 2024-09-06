@@ -4,6 +4,49 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_geoip_module.c
+ *
+ * 该模块实现了Nginx的Stream模块的GeoIP功能，用于根据客户端IP地址获取地理位置信息。
+ *
+ * 支持的功能:
+ * 1. 根据IP地址查询国家信息
+ * 2. 根据IP地址查询城市信息
+ * 3. 根据IP地址查询组织信息
+ * 4. 支持IPv4和IPv6地址(如果编译时启用)
+ * 5. 可以从GeoIP数据库文件加载地理位置数据
+ *
+ * 支持的指令:
+ * - geoip_country: 指定GeoIP国家数据库文件路径
+ *   语法: geoip_country file;
+ *   上下文: stream
+ * 
+ * - geoip_city: 指定GeoIP城市数据库文件路径
+ *   语法: geoip_city file;
+ *   上下文: stream
+ *
+ * - geoip_org: 指定GeoIP组织数据库文件路径
+ *   语法: geoip_org file;
+ *   上下文: stream
+ *
+ * 相关变量:
+ * - $geoip_country_code: 两个字母的国家代码
+ * - $geoip_country_code3: 三个字母的国家代码
+ * - $geoip_country_name: 国家名称
+ * - $geoip_city_country_code: 城市所在国家的两个字母代码
+ * - $geoip_city_country_name: 城市所在国家名称
+ * - $geoip_city: 城市名称
+ * - $geoip_latitude: 纬度
+ * - $geoip_longitude: 经度
+ * - $geoip_org: 组织名称
+ *
+ * 使用注意点:
+ * 1. 需要安装MaxMind的GeoIP库和数据文件
+ * 2. 确保Nginx有权限读取GeoIP数据库文件
+ * 3. GeoIP查询可能会增加一些延迟，特别是在高并发场景下
+*/
+
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

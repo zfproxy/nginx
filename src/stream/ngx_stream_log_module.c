@@ -4,6 +4,57 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_log_module.c
+ *
+ * 该模块实现了Nginx流模块的日志功能。
+ *
+ * 支持的功能：
+ * 1. 自定义日志格式
+ * 2. 支持多个日志文件
+ * 3. 条件日志记录
+ * 4. 缓冲日志写入
+ * 5. 日志文件循环
+ * 6. 压缩日志文件（需要zlib支持）
+ *
+ * 支持的指令：
+ * - log_format: 定义日志格式
+ *   语法: log_format name [escape=default|json|none] string ...;
+ *   上下文: stream
+ * - access_log: 设置访问日志的路径、格式和配置
+ *   语法: access_log path [format [buffer=size] [gzip[=level]] [flush=time] [if=condition]];
+ *   上下文: stream, server
+ * - open_log_file_cache: 配置打开日志文件的缓存
+ *   语法: open_log_file_cache max=N [inactive=time] [min_uses=N] [valid=time];
+ *   上下文: stream, server
+ *
+ * 支持的内置变量：
+ * - $binary_remote_addr: 客户端地址的二进制形式
+ * - $connection: 连接的序列号
+ * - $msec: 以毫秒为单位的时间
+ * - $proxy_protocol_addr: 代理协议中的客户端地址
+ * - $remote_addr: 客户端地址
+ * - $remote_port: 客户端端口
+ * - $server_addr: 接受请求的服务器地址
+ * - $server_port: 接受请求的服务器端口
+ * - $session_time: 会话持续时间
+ * - $status: 会话状态
+ * - $time_iso8601: ISO 8601标准格式的本地时间
+ * - $time_local: Common Log格式的本地时间
+ *
+ * 使用注意点：
+ * 1. 合理配置日志级别，避免过多日志影响性能
+ * 2. 使用缓冲写入可以提高性能，但可能导致部分日志延迟写入
+ * 3. 启用压缩可以节省磁盘空间，但会增加CPU开销
+ * 4. 使用条件日志时，确保条件表达式的效率
+ * 5. 定期轮换日志文件，防止单个文件过大
+ * 6. 在高并发环境下，注意日志写入对磁盘I/O的影响
+ * 7. 使用变量时注意性能影响，部分变量可能需要额外的处理时间
+ * 8. 配置open_log_file_cache可以提高日志文件打开的效率
+ * 9. 注意日志文件的权限设置，确保Nginx进程有写入权限
+ * 10. 定期检查和分析日志，及时发现和解决问题
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

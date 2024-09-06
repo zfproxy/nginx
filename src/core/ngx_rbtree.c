@@ -4,6 +4,22 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/**
+ * @file ngx_rbtree.c
+ * @brief Nginx红黑树实现
+ * 
+ * 本文件包含了Nginx中红黑树数据结构的实现。
+ * 红黑树是一种自平衡二叉搜索树，它在插入和删除操作后
+ * 能够自动保持平衡，从而保证了树的高度始终保持在O(log n)。
+ * 
+ * 红黑树的主要特性:
+ * 1. 每个节点要么是红色，要么是黑色
+ * 2. 根节点总是黑色的
+ * 3. 如果一个节点是红色的，则它的子节点必须是黑色的
+ * 4. 从根节点到叶节点或空子节点的每条路径，必须包含相同数目的黑色节点
+ * 
+ * 这些特性确保了树在最坏情况下的性能。
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -15,8 +31,23 @@
  */
 
 
+/**
+ * @brief 红黑树左旋操作
+ *
+ * @param root 红黑树的根节点指针
+ * @param sentinel 哨兵节点
+ * @param node 需要进行左旋的节点
+ */
 static ngx_inline void ngx_rbtree_left_rotate(ngx_rbtree_node_t **root,
     ngx_rbtree_node_t *sentinel, ngx_rbtree_node_t *node);
+
+/**
+ * @brief 红黑树右旋操作
+ *
+ * @param root 红黑树的根节点指针
+ * @param sentinel 哨兵节点
+ * @param node 需要进行右旋的节点
+ */
 static ngx_inline void ngx_rbtree_right_rotate(ngx_rbtree_node_t **root,
     ngx_rbtree_node_t *sentinel, ngx_rbtree_node_t *node);
 

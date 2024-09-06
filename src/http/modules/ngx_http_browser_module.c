@@ -5,6 +5,48 @@
  */
 
 
+/*
+ * ngx_http_browser_module.c
+ *
+ * 该模块实现了基于用户代理字符串的浏览器检测功能。
+ *
+ * 支持的功能:
+ * 1. 检测现代浏览器和古老浏览器
+ * 2. 支持自定义浏览器版本检测规则
+ * 3. 提供变量用于条件判断
+ * 4. 特殊处理Netscape 4浏览器
+ *
+ * 支持的指令:
+ * - modern_browser: 定义现代浏览器
+ *   语法: modern_browser browser version;
+ *   上下文: http, server, location
+ *
+ * - ancient_browser: 定义古老浏览器
+ *   语法: ancient_browser string ...;
+ *   上下文: http, server, location
+ *
+ * - modern_browser_value: 设置$modern_browser变量的值
+ *   语法: modern_browser_value string;
+ *   上下文: http, server, location
+ *
+ * - ancient_browser_value: 设置$ancient_browser变量的值
+ *   语法: ancient_browser_value string;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * - $modern_browser: 如果是现代浏览器，则包含指定值
+ * - $ancient_browser: 如果是古老浏览器，则包含指定值
+ *
+ * 使用注意点:
+ * 1. 浏览器版本检测支持X, X.X, X.X.X, 和X.X.X.X格式
+ * 2. 版本号的最大值限制为4000.99.99.99
+ * 3. 未列出的浏览器默认被视为现代浏览器，可通过配置更改
+ * 4. Netscape 4浏览器有特殊处理，可能需要单独考虑
+ * 5. 用户代理字符串可能被伪造，不应完全依赖此模块进行关键决策
+ */
+
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
@@ -17,57 +59,80 @@
  */
 
 
+// 定义现代浏览器和古老浏览器的标识
 #define  NGX_HTTP_MODERN_BROWSER   0
 #define  NGX_HTTP_ANCIENT_BROWSER  1
 
 
+// 定义现代浏览器掩码结构体
 typedef struct {
-    u_char                      browser[12];
-    size_t                      skip;
-    size_t                      add;
-    u_char                      name[12];
+    u_char                      browser[12];  // 浏览器名称
+    size_t                      skip;         // 跳过的字符数
+    size_t                      add;          // 添加的字符数
+    u_char                      name[12];     // 浏览器别名
 } ngx_http_modern_browser_mask_t;
 
 
+// 定义现代浏览器结构体
 typedef struct {
-    ngx_uint_t                  version;
-    size_t                      skip;
-    size_t                      add;
-    u_char                      name[12];
+    ngx_uint_t                  version;      // 浏览器版本
+    size_t                      skip;         // 跳过的字符数
+    size_t                      add;          // 添加的字符数
+    u_char                      name[12];     // 浏览器名称
 } ngx_http_modern_browser_t;
 
 
+// 定义浏览器模块配置结构体
 typedef struct {
-    ngx_array_t                *modern_browsers;
-    ngx_array_t                *ancient_browsers;
-    ngx_http_variable_value_t  *modern_browser_value;
-    ngx_http_variable_value_t  *ancient_browser_value;
+    ngx_array_t                *modern_browsers;          // 现代浏览器数组
+    ngx_array_t                *ancient_browsers;         // 古老浏览器数组
+    ngx_http_variable_value_t  *modern_browser_value;     // 现代浏览器变量值
+    ngx_http_variable_value_t  *ancient_browser_value;    // 古老浏览器变量值
 
-    unsigned                    modern_unlisted_browsers:1;
-    unsigned                    netscape4:1;
+    unsigned                    modern_unlisted_browsers:1;  // 是否将未列出的浏览器视为现代浏览器
+    unsigned                    netscape4:1;                 // 是否特殊处理Netscape 4
 } ngx_http_browser_conf_t;
 
 
+// 处理MSIE变量的函数
 static ngx_int_t ngx_http_msie_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+
+// 处理浏览器变量的函数
 static ngx_int_t ngx_http_browser_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
+// 识别浏览器类型和版本的主要函数
 static ngx_uint_t ngx_http_browser(ngx_http_request_t *r,
     ngx_http_browser_conf_t *cf);
 
+// 添加模块变量的函数
 static ngx_int_t ngx_http_browser_add_variables(ngx_conf_t *cf);
+
+// 创建模块配置的函数
 static void *ngx_http_browser_create_conf(ngx_conf_t *cf);
+
+// 合并模块配置的函数
 static char *ngx_http_browser_merge_conf(ngx_conf_t *cf, void *parent,
     void *child);
+
+// 用于排序现代浏览器列表的比较函数
 static int ngx_libc_cdecl ngx_http_modern_browser_sort(const void *one,
     const void *two);
+
+// 处理"modern_browser"指令的函数
 static char *ngx_http_modern_browser(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+// 处理"ancient_browser"指令的函数
 static char *ngx_http_ancient_browser(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+// 处理"modern_browser_value"指令的函数
 static char *ngx_http_modern_browser_value(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+// 处理"ancient_browser_value"指令的函数
 static char *ngx_http_ancient_browser_value(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
@@ -211,6 +276,12 @@ static ngx_http_modern_browser_mask_t  ngx_http_modern_browser_masks[] = {
 };
 
 
+/**
+ * @brief 定义浏览器相关的变量数组
+ *
+ * 这个数组包含了与浏览器检测相关的Nginx变量定义。
+ * 每个变量都有一个处理函数，用于根据请求的User-Agent来设置变量的值。
+ */
 static ngx_http_variable_t  ngx_http_browser_vars[] = {
 
     { ngx_string("msie"), NULL, ngx_http_msie_variable,

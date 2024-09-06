@@ -6,6 +6,53 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_uwsgi_module.c
+ *
+ * 该模块实现了uWSGI协议的支持，允许Nginx作为反向代理将请求转发给uWSGI应用服务器。
+ *
+ * 主要功能:
+ * - 将HTTP请求转换为uWSGI请求
+ * - 支持上游uWSGI服务器的负载均衡
+ * - 支持uWSGI参数传递
+ * - 支持请求和响应的缓存
+ * - 支持SSL/TLS连接到上游服务器
+ *
+ * 支持的指令:
+ * - uwsgi_pass: 设置uWSGI服务器的地址
+ *   语法: uwsgi_pass address;
+ *   上下文: location, if in location
+ *
+ * - uwsgi_param: 设置传递给uWSGI服务器的参数
+ *   语法: uwsgi_param parameter value [if_not_empty];
+ *   上下文: http, server, location
+ *
+ * - uwsgi_modifier1: 设置uWSGI请求的modifier1值
+ *   语法: uwsgi_modifier1 number;
+ *   上下文: http, server, location
+ *
+ * - uwsgi_modifier2: 设置uWSGI请求的modifier2值
+ *   语法: uwsgi_modifier2 number;
+ *   上下文: http, server, location
+ *
+ * - uwsgi_ssl_protocols: 指定允许的SSL/TLS协议版本
+ *   语法: uwsgi_ssl_protocols [SSLv2] [SSLv3] [TLSv1] [TLSv1.1] [TLSv1.2] [TLSv1.3];
+ *   上下文: http, server, location
+ *
+ * 提供的变量:
+ * - $uwsgi_version: uWSGI服务器版本
+ * - $uwsgi_content_length: uWSGI请求的内容长度
+ * - $uwsgi_param_name: 任意uWSGI参数的值
+ *
+ * 使用注意点:
+ * 1. 配置uWSGI服务器地址时需要确保地址正确且服务器可访问
+ * 2. 合理设置超时时间和缓冲区大小，以优化性能
+ * 3. 使用uwsgi_param指令时注意参数名的大小写
+ * 4. 启用缓存时需要合理配置缓存策略，避免缓存敏感数据
+ * 5. 在生产环境中建议启用HTTPS来保护uWSGI通信
+ * 6. 使用SSL/TLS连接时，需要正确配置证书和密钥
+ * 7. modifier1和modifier2的值应与uWSGI应用服务器的配置一致
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

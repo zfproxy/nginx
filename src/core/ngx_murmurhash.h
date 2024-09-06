@@ -13,6 +13,13 @@
 #include <ngx_core.h>
 
 
+/**
+ * @brief 计算MurmurHash2哈希值
+ * 
+ * @param data 要计算哈希的数据
+ * @param len 数据长度
+ * @return uint32_t 返回32位哈希值
+ */
 uint32_t ngx_murmur_hash2(u_char *data, size_t len);
 
 

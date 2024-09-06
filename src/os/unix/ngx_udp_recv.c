@@ -4,6 +4,24 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_udp_recv.c
+ *
+ * 本文件实现了Nginx中UDP接收相关的功能。
+ *
+ * 支持的功能:
+ * 1. 非阻塞UDP数据接收
+ * 2. 错误处理和日志记录
+ * 3. 与事件模块的集成
+ * 4. 支持kqueue事件机制(如果可用)
+ *
+ * 使用注意点:
+ * - 确保在调用ngx_udp_unix_recv()前已正确初始化连接结构体
+ * - 需要正确处理返回的错误码，特别是NGX_AGAIN
+ * - 在高并发环境下，注意处理可能的缓冲区溢出情况
+ * - 对于kqueue事件机制，需要注意available字段的处理
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

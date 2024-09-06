@@ -4,6 +4,46 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_limit_conn_module.c
+ *
+ * 该模块实现了基于共享内存的连接数限制功能。
+ *
+ * 支持的功能:
+ * - 基于指定key的并发连接数限制
+ * - 可配置的限制阈值
+ * - 支持多个限制规则
+ * - 支持日志记录被限制的连接
+ * - 支持自定义拒绝状态码
+ * - 支持干运行模式
+ *
+ * 支持的指令:
+ * - limit_conn_zone: 定义共享内存区域来存储状态
+ *   语法: limit_conn_zone key zone=name:size;
+ *   上下文: http
+ *
+ * - limit_conn: 设置连接数限制
+ *   语法: limit_conn zone_name number;
+ *   上下文: http, server, location
+ *
+ * - limit_conn_log_level: 设置日志级别
+ *   语法: limit_conn_log_level info | notice | warn | error;
+ *   默认值: error
+ *   上下文: http, server, location
+ *
+ * - limit_conn_status: 设置拒绝连接时的响应状态码
+ *   语法: limit_conn_status code;
+ *   默认值: 503
+ *   上下文: http, server, location
+ *
+ * - limit_conn_dry_run: 启用干运行模式
+ *   语法: limit_conn_dry_run on | off;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * $limit_conn_status: 限制连接的状态(PASSED/REJECTED/REJECTED_DRY_RUN)
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

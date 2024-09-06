@@ -4,42 +4,99 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_charset_filter_module.c
+ *
+ * 该模块实现了HTTP响应的字符集转换功能。
+ *
+ * 支持的功能:
+ * 1. 将响应内容从一种字符编码转换为另一种
+ * 2. 自动检测源字符集
+ * 3. 支持UTF-8和多种其他字符编码
+ * 4. 可以对特定MIME类型进行字符集转换
+ * 5. 支持HTML实体的转换
+ *
+ * 支持的指令:
+ * - charset: 设置默认的字符集
+ *   语法: charset charset | off;
+ *   默认值: off
+ *   上下文: http, server, location, location if
+ *
+ * - charset_map: 定义两个字符集之间的转换映射
+ *   语法: charset_map charset1 charset2 { ... }
+ *   上下文: http
+ *
+ * - override_charset: 是否覆盖已有的Content-Type头中的字符集
+ *   语法: override_charset on | off;
+ *   默认值: off
+ *   上下文: http, server, location, location if
+ *
+ * - charset_types: 指定需要进行字符集转换的MIME类型
+ *   语法: charset_types mime-type ...;
+ *   默认值: charset_types text/html text/xml text/plain text/vnd.wap.wml application/javascript application/rss+xml;
+ *   上下文: http, server, location
+ *
+ * - source_charset: 设置源字符集
+ *   语法: source_charset charset;
+ *   上下文: http, server, location, location if
+ *
+ * 支持的变量:
+ * - $charset: 当前使用的字符集
+ *
+ * 使用注意点:
+ * 1. 确保正确配置源字符集和目标字符集，避免数据丢失
+ * 2. 字符集转换可能会增加服务器负载，建议只在必要时启用
+ * 3. 对于大型响应，字符集转换可能会显著增加处理时间
+ * 4. 某些特殊字符可能在转换过程中丢失或被替换
+ * 5. 使用override_charset时要谨慎，以免覆盖客户端期望的字符集
+ */
+
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+// 字符集转换已禁用的标志
 #define NGX_HTTP_CHARSET_OFF    -2
+
+// 没有指定字符集的标志
 #define NGX_HTTP_NO_CHARSET     -3
+
+// 字符集为变量的标志
 #define NGX_HTTP_CHARSET_VAR    0x10000
 
-/* 1 byte length and up to 3 bytes for the UTF-8 encoding of the UCS-2 */
+/* 1字节长度加上最多3字节用于UCS-2的UTF-8编码 */
 #define NGX_UTF_LEN             4
 
+// HTML实体的最大长度（用于表示Unicode码点1114111）
 #define NGX_HTML_ENTITY_LEN     (sizeof("&#1114111;") - 1)
 
 
+// 定义字符集结构体
 typedef struct {
-    u_char                    **tables;
-    ngx_str_t                   name;
+    u_char                    **tables;    // 字符转换表数组
+    ngx_str_t                   name;      // 字符集名称
 
-    unsigned                    length:16;
-    unsigned                    utf8:1;
+    unsigned                    length:16; // 字符集编码的最大字节长度
+    unsigned                    utf8:1;    // 是否为UTF-8编码
 } ngx_http_charset_t;
 
 
+// 定义字符集重编码结构体
 typedef struct {
-    ngx_int_t                   src;
-    ngx_int_t                   dst;
+    ngx_int_t                   src;       // 源字符集索引
+    ngx_int_t                   dst;       // 目标字符集索引
 } ngx_http_charset_recode_t;
 
 
+// 定义字符集转换表结构体
 typedef struct {
-    ngx_int_t                   src;
-    ngx_int_t                   dst;
-    u_char                     *src2dst;
-    u_char                     *dst2src;
+    ngx_int_t                   src;       // 源字符集索引
+    ngx_int_t                   dst;       // 目标字符集索引
+    u_char                     *src2dst;   // 源到目标的转换表
+    u_char                     *dst2src;   // 目标到源的转换表
 } ngx_http_charset_tables_t;
 
 
@@ -50,79 +107,121 @@ typedef struct {
 } ngx_http_charset_main_conf_t;
 
 
+// 定义字符集位置配置结构体
 typedef struct {
-    ngx_int_t                   charset;
-    ngx_int_t                   source_charset;
-    ngx_flag_t                  override_charset;
+    ngx_int_t                   charset;         // 目标字符集
+    ngx_int_t                   source_charset;  // 源字符集
+    ngx_flag_t                  override_charset;// 是否覆盖字符集设置
 
-    ngx_hash_t                  types;
-    ngx_array_t                *types_keys;
+    ngx_hash_t                  types;           // 支持字符集转换的MIME类型哈希表
+    ngx_array_t                *types_keys;      // 支持字符集转换的MIME类型键数组
 } ngx_http_charset_loc_conf_t;
 
 
+// 定义字符集转换上下文结构体
 typedef struct {
-    u_char                     *table;
-    ngx_int_t                   charset;
-    ngx_str_t                   charset_name;
+    u_char                     *table;           // 字符转换表
+    ngx_int_t                   charset;         // 当前字符集
+    ngx_str_t                   charset_name;    // 字符集名称
 
-    ngx_chain_t                *busy;
-    ngx_chain_t                *free_bufs;
-    ngx_chain_t                *free_buffers;
+    ngx_chain_t                *busy;            // 正在使用的缓冲区链
+    ngx_chain_t                *free_bufs;       // 空闲缓冲区链
+    ngx_chain_t                *free_buffers;    // 空闲大缓冲区链
 
-    size_t                      saved_len;
-    u_char                      saved[NGX_UTF_LEN];
+    size_t                      saved_len;       // 保存的未处理字符长度
+    u_char                      saved[NGX_UTF_LEN]; // 保存的未处理字符
 
-    unsigned                    length:16;
-    unsigned                    from_utf8:1;
-    unsigned                    to_utf8:1;
+    unsigned                    length:16;       // 字符集编码的最大字节长度
+    unsigned                    from_utf8:1;     // 是否从UTF-8转换
+    unsigned                    to_utf8:1;       // 是否转换到UTF-8
 } ngx_http_charset_ctx_t;
 
 
+// 定义字符集配置上下文结构体
 typedef struct {
-    ngx_http_charset_tables_t  *table;
-    ngx_http_charset_t         *charset;
-    ngx_uint_t                  characters;
+    ngx_http_charset_tables_t  *table;           // 字符集转换表
+    ngx_http_charset_t         *charset;         // 字符集信息
+    ngx_uint_t                  characters;      // 字符数量
 } ngx_http_charset_conf_ctx_t;
 
 
+// 获取目标字符集
 static ngx_int_t ngx_http_destination_charset(ngx_http_request_t *r,
     ngx_str_t *name);
+
+// 获取主请求的字符集
 static ngx_int_t ngx_http_main_request_charset(ngx_http_request_t *r,
     ngx_str_t *name);
+
+// 获取源字符集
 static ngx_int_t ngx_http_source_charset(ngx_http_request_t *r,
     ngx_str_t *name);
+
+// 获取字符集
 static ngx_int_t ngx_http_get_charset(ngx_http_request_t *r, ngx_str_t *name);
+
+// 设置字符集
 static ngx_inline void ngx_http_set_charset(ngx_http_request_t *r,
     ngx_str_t *charset);
+
+// 创建或获取字符集上下文
 static ngx_int_t ngx_http_charset_ctx(ngx_http_request_t *r,
     ngx_http_charset_t *charsets, ngx_int_t charset, ngx_int_t source_charset);
+
+// 使用转换表进行字符重编码
 static ngx_uint_t ngx_http_charset_recode(ngx_buf_t *b, u_char *table);
+
+// 从UTF-8重编码到其他字符集
 static ngx_chain_t *ngx_http_charset_recode_from_utf8(ngx_pool_t *pool,
     ngx_buf_t *buf, ngx_http_charset_ctx_t *ctx);
+
+// 从其他字符集重编码到UTF-8
 static ngx_chain_t *ngx_http_charset_recode_to_utf8(ngx_pool_t *pool,
     ngx_buf_t *buf, ngx_http_charset_ctx_t *ctx);
 
+// 从内存池中获取缓冲区
 static ngx_chain_t *ngx_http_charset_get_buf(ngx_pool_t *pool,
     ngx_http_charset_ctx_t *ctx);
+
+// 从内存池中获取指定大小的缓冲区
 static ngx_chain_t *ngx_http_charset_get_buffer(ngx_pool_t *pool,
     ngx_http_charset_ctx_t *ctx, size_t size);
 
+// 处理字符集映射块配置
 static char *ngx_http_charset_map_block(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+// 处理字符集映射配置
 static char *ngx_http_charset_map(ngx_conf_t *cf, ngx_command_t *dummy,
     void *conf);
 
+// 设置字符集配置槽
 static char *ngx_http_set_charset_slot(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+// 向字符集数组中添加新的字符集
 static ngx_int_t ngx_http_add_charset(ngx_array_t *charsets, ngx_str_t *name);
 
+// 创建主配置结构
 static void *ngx_http_charset_create_main_conf(ngx_conf_t *cf);
+
+// 创建位置配置结构
 static void *ngx_http_charset_create_loc_conf(ngx_conf_t *cf);
+
+// 合并位置配置
 static char *ngx_http_charset_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
+
+// 模块后配置处理
 static ngx_int_t ngx_http_charset_postconfiguration(ngx_conf_t *cf);
 
 
+/**
+ * @brief 定义默认的字符集处理MIME类型数组
+ *
+ * 这个数组列出了默认情况下需要进行字符集处理的MIME类型。
+ * 这些MIME类型通常包含文本内容，可能需要进行字符集转换。
+ */
 static ngx_str_t  ngx_http_charset_default_types[] = {
     ngx_string("text/html"),
     ngx_string("text/xml"),
@@ -209,10 +308,24 @@ ngx_module_t  ngx_http_charset_filter_module = {
 };
 
 
+/* 指向下一个HTTP头部过滤器的函数指针 */
 static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
+
+/* 指向下一个HTTP主体过滤器的函数指针 */
 static ngx_http_output_body_filter_pt    ngx_http_next_body_filter;
 
 
+/**
+ * @brief HTTP字符集头部过滤器函数
+ *
+ * 该函数用于处理HTTP响应的字符集转换。
+ * 它检查请求和响应的字符集，并在必要时进行转换。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @return NGX_OK 成功时返回
+ *         NGX_ERROR 发生错误时返回
+ *         NGX_DECLINED 不需要处理时返回
+ */
 static ngx_int_t
 ngx_http_charset_header_filter(ngx_http_request_t *r)
 {

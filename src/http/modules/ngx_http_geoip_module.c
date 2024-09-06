@@ -5,6 +5,42 @@
  */
 
 
+/*
+ * ngx_http_geoip_module.c
+ *
+ * 该模块提供基于GeoIP数据库的地理位置信息查询功能
+ *
+ * 支持的功能:
+ * - 根据IP地址查询国家、地区、城市等地理信息
+ * - 支持IPv4和IPv6地址(需要GeoIP库支持)
+ * - 可配置代理IP
+ *
+ * 指令:
+ * - geoip_country   - 指定国家数据库文件路径
+ * - geoip_city      - 指定城市数据库文件路径
+ * - geoip_org       - 指定组织数据库文件路径
+ * - geoip_proxy     - 设置代理IP地址或CIDR
+ * - geoip_proxy_recursive - 启用递归解析X-Forwarded-For
+ *
+ * 变量:
+ * - $geoip_country_code    - 两位国家代码
+ * - $geoip_country_code3   - 三位国家代码
+ * - $geoip_country_name    - 国家名称
+ * - $geoip_city_country_code - 城市对应的国家代码
+ * - $geoip_city            - 城市名称
+ * - $geoip_latitude        - 纬度
+ * - $geoip_longitude       - 经度
+ * - $geoip_org             - 组织名称
+ *
+ * 使用注意:
+ * 1. 需要先安装GeoIP库及数据文件
+ * 2. IPv6支持需要GeoIP库编译时开启
+ * 3. 部分变量依赖于使用的数据库类型
+ * 4. 定期更新GeoIP数据库以保证数据准确性
+ */
+
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>

@@ -4,6 +4,44 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_handler.c
+ *
+ * 该模块实现了Nginx邮件代理服务器的连接处理功能。
+ *
+ * 支持的功能:
+ * 1. 初始化邮件会话
+ * 2. 处理PROXY协议
+ * 3. SSL/TLS连接处理
+ * 4. 客户端证书验证
+ * 5. 多地址绑定支持
+ *
+ * 支持的指令:
+ * - ssl_certificate: 设置SSL证书文件
+ * - ssl_certificate_key: 设置SSL证书私钥文件
+ * - ssl_protocols: 指定支持的SSL/TLS协议版本
+ * - ssl_ciphers: 指定支持的加密算法
+ * - ssl_verify_client: 配置客户端证书验证
+ *
+ * 支持的变量:
+ * - $mail_protocol: 当前使用的邮件协议
+ * - $ssl_protocol: SSL/TLS协议版本
+ * - $ssl_cipher: 使用的加密算法
+ * - $ssl_client_verify: 客户端证书验证结果
+ *
+ * 使用注意点:
+ * 1. 正确配置SSL证书和私钥文件路径
+ * 2. 根据安全需求选择适当的SSL/TLS协议版本和加密算法
+ * 3. 谨慎启用客户端证书验证，可能影响用户访问
+ * 4. 多地址绑定时注意IP地址冲突
+ * 5. PROXY协议使用时确保前端代理正确配置
+ * 6. 合理设置超时时间，避免连接长时间占用
+ * 7. 监控日志，及时发现潜在的连接问题
+ * 8. 定期更新SSL证书，确保安全性
+ * 9. 考虑使用OCSP Stapling提高SSL握手效率
+ * 10. 在高并发环境下，注意调整worker进程数和连接数限制
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

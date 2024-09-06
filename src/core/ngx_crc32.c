@@ -5,6 +5,12 @@
  */
 
 
+/*
+ * 本文件实现了CRC32校验和的计算功能。
+ * CRC32是一种常用的校验和算法，用于检测数据传输或存储过程中的错误。
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 
@@ -23,6 +29,12 @@
  */
 
 
+/*
+ * 这是一个16元素的CRC32查找表。
+ * 用于快速计算短数据的CRC32校验和。
+ * 相比256元素的表，这个小表只占用64字节，
+ * 可以更好地利用CPU缓存，提高短数据处理的性能。
+ */
 static uint32_t  ngx_crc32_table16[] = {
     0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac,
     0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
@@ -31,6 +43,12 @@ static uint32_t  ngx_crc32_table16[] = {
 };
 
 
+/*
+ * 这是一个256元素的CRC32查找表。
+ * 用于快速计算较长数据的CRC32校验和。
+ * 这个表占用1024字节，但在处理30-60字节数据后可能会被完全缓存，
+ * 从而提高后续计算的性能。
+ */
 uint32_t  ngx_crc32_table256[] = {
     0x00000000, 0x77073096, 0xee0e612c, 0x990951ba,
     0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
@@ -99,9 +117,17 @@ uint32_t  ngx_crc32_table256[] = {
 };
 
 
+/* 定义一个指向短CRC32表的指针，初始化为16项的CRC32表 */
+/* 这个短表用于优化CRC32计算，通常用于小数据量的快速计算 */
 uint32_t *ngx_crc32_table_short = ngx_crc32_table16;
 
 
+/* 
+ * ngx_crc32_table_init 函数
+ * 返回类型: ngx_int_t (Nginx 自定义整型)
+ * 功能: 初始化 CRC32 表
+ * 返回值: 成功时返回 NGX_OK，失败时返回 NGX_ERROR
+ */
 ngx_int_t
 ngx_crc32_table_init(void)
 {

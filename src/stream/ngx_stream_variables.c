@@ -4,144 +4,287 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_variables.c
+ *
+ * 该模块实现了Nginx流模块的变量处理功能。
+ *
+ * 支持的功能：
+ * 1. 定义和管理流模块变量
+ * 2. 提供变量值的获取方法
+ * 3. 支持自定义变量
+ * 4. 处理内置变量和特殊变量（如代理协议相关变量）
+ *
+ * 支持的指令：
+ * 该模块主要提供变量支持，不直接暴露配置指令
+ *
+ * 支持的变量：
+ * - $binary_remote_addr: 二进制格式的客户端地址
+ * - $remote_addr: 客户端地址
+ * - $remote_port: 客户端端口
+ * - $proxy_protocol_addr: 代理协议中的客户端地址
+ * - $proxy_protocol_port: 代理协议中的客户端端口
+ * - $proxy_protocol_tlv_*: 代理协议中的TLV数据
+ * - $server_addr: 服务器地址
+ * - $server_port: 服务器端口
+ * - $protocol: 使用的协议（TCP/UDP）
+ *
+ * 使用注意点：
+ * 1. 在使用变量时，确保变量已在正确的上下文中定义
+ * 2. 自定义变量时，注意变量名的唯一性
+ * 3. 使用代理协议相关变量时，确保已正确启用代理协议
+ * 4. 在处理大量并发连接时，注意变量处理对性能的影响
+ * 5. 某些变量可能在特定阶段才能获取有效值，使用时需注意timing
+ */
+
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
 #include <nginx.h>
 
+
+/*
+ * 添加带前缀的流变量
+ */
 static ngx_stream_variable_t *ngx_stream_add_prefix_variable(ngx_conf_t *cf,
     ngx_str_t *name, ngx_uint_t flags);
 
+/*
+ * 获取二进制格式的远程地址
+ */
 static ngx_int_t ngx_stream_variable_binary_remote_addr(
     ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取远程地址
+ */
 static ngx_int_t ngx_stream_variable_remote_addr(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取远程端口
+ */
 static ngx_int_t ngx_stream_variable_remote_port(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取代理协议中的地址
+ */
 static ngx_int_t ngx_stream_variable_proxy_protocol_addr(
     ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取代理协议中的端口
+ */
 static ngx_int_t ngx_stream_variable_proxy_protocol_port(
     ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取代理协议中的TLV（Type-Length-Value）数据
+ */
 static ngx_int_t ngx_stream_variable_proxy_protocol_tlv(
     ngx_stream_session_t *s, ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取服务器地址
+ */
 static ngx_int_t ngx_stream_variable_server_addr(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取服务器端口
+ */
 static ngx_int_t ngx_stream_variable_server_port(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取服务器名称
+ */
 static ngx_int_t ngx_stream_variable_server_name(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取字节数（发送或接收）
+ */
 static ngx_int_t ngx_stream_variable_bytes(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取会话时间
+ */
 static ngx_int_t ngx_stream_variable_session_time(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取状态
+ */
 static ngx_int_t ngx_stream_variable_status(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取连接信息
+ */
 static ngx_int_t ngx_stream_variable_connection(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
 
+/*
+ * 获取Nginx版本
+ */
 static ngx_int_t ngx_stream_variable_nginx_version(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取主机名
+ */
 static ngx_int_t ngx_stream_variable_hostname(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取进程ID
+ */
 static ngx_int_t ngx_stream_variable_pid(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取当前时间（毫秒）
+ */
 static ngx_int_t ngx_stream_variable_msec(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取ISO 8601格式的时间
+ */
 static ngx_int_t ngx_stream_variable_time_iso8601(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取本地时间
+ */
 static ngx_int_t ngx_stream_variable_time_local(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+
+/*
+ * 获取协议信息
+ */
 static ngx_int_t ngx_stream_variable_protocol(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
 
 
 static ngx_stream_variable_t  ngx_stream_core_variables[] = {
 
+    // 二进制格式的客户端地址
     { ngx_string("binary_remote_addr"), NULL,
       ngx_stream_variable_binary_remote_addr, 0, 0, 0 },
 
+    // 客户端地址
     { ngx_string("remote_addr"), NULL,
       ngx_stream_variable_remote_addr, 0, 0, 0 },
 
+    // 客户端端口
     { ngx_string("remote_port"), NULL,
       ngx_stream_variable_remote_port, 0, 0, 0 },
 
+    // 代理协议中的客户端地址
     { ngx_string("proxy_protocol_addr"), NULL,
       ngx_stream_variable_proxy_protocol_addr,
       offsetof(ngx_proxy_protocol_t, src_addr), 0, 0 },
 
+    // 代理协议中的客户端端口
     { ngx_string("proxy_protocol_port"), NULL,
       ngx_stream_variable_proxy_protocol_port,
       offsetof(ngx_proxy_protocol_t, src_port), 0, 0 },
 
+    // 代理协议中的服务器地址
     { ngx_string("proxy_protocol_server_addr"), NULL,
       ngx_stream_variable_proxy_protocol_addr,
       offsetof(ngx_proxy_protocol_t, dst_addr), 0, 0 },
 
+    // 代理协议中的服务器端口
     { ngx_string("proxy_protocol_server_port"), NULL,
       ngx_stream_variable_proxy_protocol_port,
       offsetof(ngx_proxy_protocol_t, dst_port), 0, 0 },
 
+    // 代理协议中的TLV（Type-Length-Value）数据
     { ngx_string("proxy_protocol_tlv_"), NULL,
       ngx_stream_variable_proxy_protocol_tlv,
       0, NGX_STREAM_VAR_PREFIX, 0 },
 
+    // 服务器地址
     { ngx_string("server_addr"), NULL,
       ngx_stream_variable_server_addr, 0, 0, 0 },
 
+    // 服务器端口
     { ngx_string("server_port"), NULL,
       ngx_stream_variable_server_port, 0, 0, 0 },
 
+    // 服务器名称
     { ngx_string("server_name"), NULL, ngx_stream_variable_server_name,
       0, 0, 0 },
 
+    // 发送的字节数
     { ngx_string("bytes_sent"), NULL, ngx_stream_variable_bytes,
       0, 0, 0 },
 
+    // 接收的字节数
     { ngx_string("bytes_received"), NULL, ngx_stream_variable_bytes,
       1, 0, 0 },
 
+    // 会话持续时间
     { ngx_string("session_time"), NULL, ngx_stream_variable_session_time,
       0, NGX_STREAM_VAR_NOCACHEABLE, 0 },
 
+    // 会话状态
     { ngx_string("status"), NULL, ngx_stream_variable_status,
       0, NGX_STREAM_VAR_NOCACHEABLE, 0 },
 
+    // 连接信息
     { ngx_string("connection"), NULL,
       ngx_stream_variable_connection, 0, 0, 0 },
 
+    // Nginx版本
     { ngx_string("nginx_version"), NULL, ngx_stream_variable_nginx_version,
       0, 0, 0 },
 
+    // 主机名
     { ngx_string("hostname"), NULL, ngx_stream_variable_hostname,
       0, 0, 0 },
 
+    // 进程ID
     { ngx_string("pid"), NULL, ngx_stream_variable_pid,
       0, 0, 0 },
 
+    // 当前时间（毫秒）
     { ngx_string("msec"), NULL, ngx_stream_variable_msec,
       0, NGX_STREAM_VAR_NOCACHEABLE, 0 },
 
+    // ISO 8601格式的时间
     { ngx_string("time_iso8601"), NULL, ngx_stream_variable_time_iso8601,
       0, NGX_STREAM_VAR_NOCACHEABLE, 0 },
 
+    // 本地时间
     { ngx_string("time_local"), NULL, ngx_stream_variable_time_local,
       0, NGX_STREAM_VAR_NOCACHEABLE, 0 },
 
+    // 协议信息
     { ngx_string("protocol"), NULL,
       ngx_stream_variable_protocol, 0, 0, 0 },
 
-      ngx_stream_null_variable
+    ngx_stream_null_variable
 };
 
 
+// 定义一个空值变量
 ngx_stream_variable_value_t  ngx_stream_variable_null_value =
     ngx_stream_variable("");
+
+// 定义一个表示真值的变量
 ngx_stream_variable_value_t  ngx_stream_variable_true_value =
     ngx_stream_variable("1");
 
 
+// 定义变量嵌套的最大深度
 static ngx_uint_t  ngx_stream_variable_depth = 100;
 
 

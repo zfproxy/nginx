@@ -4,6 +4,37 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_win32_select_module.c
+ *
+ * 该模块实现了基于Windows平台的select事件驱动机制。
+ *
+ * 支持的功能:
+ * 1. 基本的I/O事件多路复用
+ * 2. 添加和删除事件监听
+ * 3. 启用和禁用事件
+ * 4. 处理定时器事件
+ * 5. 适配Windows平台的特性
+ *
+ * 支持的指令:
+ * 本模块不支持任何特定的配置指令。
+ *
+ * 支持的变量:
+ * 本模块不直接定义变量，但其处理的事件可通过Nginx的标准变量访问。
+ *
+ * 使用注意点:
+ * 1. 仅适用于Windows平台
+ * 2. select方法在大量文件描述符时性能会显著下降，不适合高并发场景
+ * 3. 对于支持更高效I/O多路复用机制的Windows版本，建议使用IOCP
+ * 4. select有文件描述符数量的限制，通常为64（可通过修改FD_SETSIZE提高）
+ * 5. 每次调用select都需要重新设置文件描述符集，可能导致性能开销
+ * 6. select是水平触发的，可能导致某些情况下的惊群效应
+ * 7. 在使用select时，需要注意处理WSAEINTR错误（被中断）
+ * 8. 对于长连接场景，select的性能表现可能不如其他事件驱动机制
+ * 9. 在配置Nginx时，如果Windows版本支持IOCP，应优先选择IOCP模块
+ * 10. 定期检查和更新Nginx，以获取select模块在Windows平台上的最新优化和bug修复
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

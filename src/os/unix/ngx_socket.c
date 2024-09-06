@@ -4,6 +4,30 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_socket.c
+ *
+ * 该文件实现了Nginx在Unix系统上的套接字操作功能。
+ *
+ * 支持的功能:
+ * 1. 设置非阻塞套接字 (ngx_nonblocking)
+ * 2. 设置阻塞套接字 (ngx_blocking) 
+ * 3. 启用TCP NOPUSH选项 (ngx_tcp_nopush)
+ * 4. 禁用TCP NOPUSH选项 (ngx_tcp_push)
+ * 5. 启用TCP NODELAY选项
+ * 6. 设置套接字的keep-alive选项
+ * 7. 设置套接字的linger选项
+ *
+ * 使用注意点:
+ * 1. 非阻塞套接字设置可能影响I/O性能，需根据实际情况选择
+ * 2. TCP_NOPUSH和TCP_NODELAY选项会影响数据发送行为，使用时需权衡
+ * 3. keep-alive和linger选项会影响连接的关闭行为，需谨慎配置
+ * 4. 部分功能可能依赖于特定操作系统的支持，使用前需检查系统兼容性
+ * 5. 错误处理应当合理，避免因套接字操作失败导致服务器异常
+ * 6. 在高并发环境下，某些套接字选项可能会对性能产生显著影响
+ * 7. 修改套接字选项可能会影响网络栈的行为，需要全面测试以确保系统稳定性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

@@ -4,6 +4,36 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_realip_module.c
+ *
+ * 该模块实现了Nginx流模块的客户端真实IP获取功能。
+ *
+ * 支持的功能：
+ * 1. 从指定的可信代理IP列表中获取客户端真实IP
+ * 2. 修改连接的远程地址为真实客户端IP
+ * 3. 提供变量用于访问原始远程地址和端口
+ *
+ * 支持的指令：
+ * - set_real_ip_from: 设置可信代理IP地址
+ *   语法: set_real_ip_from address | CIDR;
+ *   上下文: stream, server
+ *
+ * 支持的变量：
+ * - $realip_remote_addr: 原始远程地址
+ * - $realip_remote_port: 原始远程端口
+ *
+ * 使用注意点：
+ * 1. 确保正确配置可信代理IP列表，避免安全风险
+ * 2. 该模块会修改 $remote_addr 和 $remote_port 变量的值
+ * 3. 如需保留原始远程地址信息，使用 $realip_remote_addr 和 $realip_remote_port
+ * 4. 模块处理顺序可能影响其他依赖客户端IP的功能，注意配置顺序
+ * 5. 在使用负载均衡器或多层代理时，确保正确配置每一层的可信IP
+ * 6. 定期检查和更新可信代理IP列表，以适应网络变化
+ * 7. 在日志中同时记录原始IP和真实IP，便于问题排查
+ * 8. 该模块仅在流模块(stream)中有效，不适用于HTTP模块
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

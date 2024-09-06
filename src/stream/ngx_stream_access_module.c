@@ -4,65 +4,121 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_access_module.c
+ *
+ * 该模块实现了Nginx的Stream模块访问控制功能，用于限制客户端对Stream服务的访问。
+ *
+ * 支持的功能:
+ * 1. 基于IP地址的访问控制
+ * 2. 支持IPv4和IPv6地址
+ * 3. 支持UNIX域套接字
+ * 4. 允许或拒绝特定IP地址或地址范围的访问
+ * 5. 支持CIDR表示法的IP地址范围
+ *
+ * 支持的指令:
+ * - allow: 允许特定IP地址或地址范围访问
+ *   语法: allow address | CIDR | unix: | all;
+ *   上下文: stream, server
+ * 
+ * - deny: 拒绝特定IP地址或地址范围访问
+ *   语法: deny address | CIDR | unix: | all;
+ *   上下文: stream, server
+ *
+ * 相关变量:
+ * 本模块不直接提供可在配置中使用的变量。
+ *
+ * 使用注意点:
+ * 1. 规则的顺序很重要，Nginx按照配置文件中的顺序逐条检查规则
+ * 2. 如果没有匹配的规则，默认行为是允许访问
+ * 3. 使用"deny all"作为最后一条规则可以实现白名单机制
+ * 4. 在处理大量并发连接时，过多的访问规则可能会影响性能
+ * 5. IPv6地址需要用方括号[]括起来
+ * 6. UNIX域套接字的访问控制使用"unix:"关键字
+ * 7. 在使用反向代理时，确保获取的是真实客户端IP，而不是代理服务器IP
+ * 8. 定期审查和更新访问规则，以确保安全性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
 
+// IPv4访问规则结构体
 typedef struct {
-    in_addr_t         mask;
-    in_addr_t         addr;
-    ngx_uint_t        deny;      /* unsigned  deny:1; */
+    in_addr_t         mask;      // IPv4地址掩码
+    in_addr_t         addr;      // IPv4地址
+    ngx_uint_t        deny;      // 是否拒绝访问，1表示拒绝，0表示允许
 } ngx_stream_access_rule_t;
 
 #if (NGX_HAVE_INET6)
 
+// IPv6访问规则结构体
 typedef struct {
-    struct in6_addr   addr;
-    struct in6_addr   mask;
-    ngx_uint_t        deny;      /* unsigned  deny:1; */
+    struct in6_addr   addr;      // IPv6地址
+    struct in6_addr   mask;      // IPv6地址掩码
+    ngx_uint_t        deny;      // 是否拒绝访问，1表示拒绝，0表示允许
 } ngx_stream_access_rule6_t;
 
 #endif
 
 #if (NGX_HAVE_UNIX_DOMAIN)
 
+// UNIX域套接字访问规则结构体
 typedef struct {
-    ngx_uint_t        deny;      /* unsigned  deny:1; */
+    ngx_uint_t        deny;      // 是否拒绝访问，1表示拒绝，0表示允许
 } ngx_stream_access_rule_un_t;
 
 #endif
 
+// 访问控制服务器配置结构体
 typedef struct {
-    ngx_array_t      *rules;     /* array of ngx_stream_access_rule_t */
+    ngx_array_t      *rules;     // IPv4访问规则数组
 #if (NGX_HAVE_INET6)
-    ngx_array_t      *rules6;    /* array of ngx_stream_access_rule6_t */
+    ngx_array_t      *rules6;    // IPv6访问规则数组
 #endif
 #if (NGX_HAVE_UNIX_DOMAIN)
-    ngx_array_t      *rules_un;  /* array of ngx_stream_access_rule_un_t */
+    ngx_array_t      *rules_un;  // UNIX域套接字访问规则数组
 #endif
 } ngx_stream_access_srv_conf_t;
 
 
+// 处理访问控制的主要函数
 static ngx_int_t ngx_stream_access_handler(ngx_stream_session_t *s);
+
+// 处理IPv4地址的访问控制
 static ngx_int_t ngx_stream_access_inet(ngx_stream_session_t *s,
     ngx_stream_access_srv_conf_t *ascf, in_addr_t addr);
+
 #if (NGX_HAVE_INET6)
+// 处理IPv6地址的访问控制
 static ngx_int_t ngx_stream_access_inet6(ngx_stream_session_t *s,
     ngx_stream_access_srv_conf_t *ascf, u_char *p);
 #endif
+
 #if (NGX_HAVE_UNIX_DOMAIN)
+// 处理UNIX域套接字的访问控制
 static ngx_int_t ngx_stream_access_unix(ngx_stream_session_t *s,
     ngx_stream_access_srv_conf_t *ascf);
 #endif
+
+// 处理找到匹配规则后的操作
 static ngx_int_t ngx_stream_access_found(ngx_stream_session_t *s,
     ngx_uint_t deny);
+
+// 解析配置文件中的访问规则
 static char *ngx_stream_access_rule(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+// 创建服务器配置结构体
 static void *ngx_stream_access_create_srv_conf(ngx_conf_t *cf);
+
+// 合并服务器配置
 static char *ngx_stream_access_merge_srv_conf(ngx_conf_t *cf,
     void *parent, void *child);
+
+// 初始化访问控制模块
 static ngx_int_t ngx_stream_access_init(ngx_conf_t *cf);
 
 

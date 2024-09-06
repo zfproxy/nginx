@@ -5,6 +5,35 @@
  */
 
 
+/*
+ * ngx_http_perl_module.c
+ *
+ * 该模块允许在Nginx中嵌入Perl代码，实现动态内容生成和请求处理。
+ *
+ * 支持的功能:
+ * 1. 在location中执行Perl子程序
+ * 2. 定义Perl变量供Nginx配置使用
+ * 3. 在SSI中执行Perl代码(如果启用NGX_HTTP_SSI)
+ * 4. 访问Nginx核心功能和请求信息
+ *
+ * 支持的指令:
+ * - perl_modules: 指定Perl模块搜索路径
+ * - perl_require: 预加载Perl模块
+ * - perl: 指定location处理的Perl代码
+ * - perl_set: 定义Perl变量
+ *
+ * 支持的变量:
+ * - $perl_var: 通过perl_set定义的变量
+ *
+ * 使用注意点:
+ * 1. 需要在编译Nginx时启用--with-http_perl_module选项
+ * 2. Perl代码应注意性能影响，避免长时间阻塞操作
+ * 3. 谨慎处理全局变量，以防止并发问题
+ * 4. 建议使用perl_modules指定模块路径，提高安全性
+ * 5. 大型Perl应用考虑使用FastCGI等接口代替直接嵌入
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>

@@ -4,6 +4,42 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_event_udp.c
+ *
+ * 该文件实现了Nginx的UDP事件处理功能，用于管理和处理UDP连接。
+ *
+ * 支持的功能:
+ * 1. UDP连接的接收和管理
+ * 2. UDP数据包的接收和发送
+ * 3. UDP连接的查找和插入
+ * 4. 支持IPv4和IPv6
+ * 5. 支持UDP连接复用
+ *
+ * 支持的指令:
+ * - listen (用于配置UDP监听)
+ * - udp_max_connections
+ * - udp_timeout
+ *
+ * 相关变量:
+ * - ngx_event_t
+ * - ngx_connection_t
+ * - ngx_listening_t
+ * - ngx_event_conf_t
+ *
+ * 使用注意点:
+ * 1. 合理配置UDP连接数上限，避免资源耗尽
+ * 2. 注意处理UDP数据包的分片和重组
+ * 3. 考虑使用SO_REUSEPORT提高性能
+ * 4. 注意处理UDP连接的超时情况
+ * 5. 在高并发场景下，需要注意UDP连接的查找和插入效率
+ * 6. 正确处理IPv4和IPv6的地址转换
+ * 7. 注意UDP数据包的最大大小限制
+ * 8. 合理设置接收缓冲区大小，避免丢包
+ * 9. 考虑使用异步I/O提高UDP处理性能
+ * 10. 注意处理ICMP错误消息
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

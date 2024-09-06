@@ -4,6 +4,46 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_limit_req_module.c
+ *
+ * 该模块实现了基于漏桶算法的请求速率限制功能。
+ *
+ * 支持的功能:
+ * - 基于指定key的请求速率限制
+ * - 可配置的突发请求处理
+ * - 延迟处理超出限制的请求
+ * - 支持白名单
+ * - 支持日志记录被限制的请求
+ * - 支持干运行模式
+ *
+ * 支持的指令:
+ * - limit_req_zone: 定义共享内存区域来存储状态
+ *   语法: limit_req_zone key zone=name:size rate=rate [sync];
+ *   上下文: http
+ *
+ * - limit_req: 启用请求限制
+ *   语法: limit_req zone=name [burst=number] [nodelay | delay=number];
+ *   上下文: http, server, location
+ *
+ * - limit_req_log_level: 设置日志级别
+ *   语法: limit_req_log_level info | notice | warn | error;
+ *   默认值: error
+ *   上下文: http, server, location
+ *
+ * - limit_req_status: 设置拒绝请求时的响应状态码
+ *   语法: limit_req_status code;
+ *   默认值: 503
+ *   上下文: http, server, location
+ *
+ * - limit_req_dry_run: 启用干运行模式
+ *   语法: limit_req_dry_run on | off;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * $limit_req_status: 限制请求的状态(PASSED/DELAYED/REJECTED/DELAYED_DRY_RUN/REJECTED_DRY_RUN)
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

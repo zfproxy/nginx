@@ -3,6 +3,39 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_upstream_random_module.c
+ *
+ * 该模块实现了Nginx流模块的上游随机负载均衡算法。
+ *
+ * 支持的功能：
+ * 1. 随机选择上游服务器
+ * 2. 支持加权随机选择
+ * 3. 可选择两个随机服务器中较优的一个
+ * 4. 动态调整服务器权重
+ * 5. 支持会话持久性
+ *
+ * 支持的指令：
+ * - random: 在upstream块内启用随机负载均衡
+ *   语法: random [two [method]];
+ *   上下文: upstream
+ *   参数: 
+ *     two: 选择两个随机服务器
+ *     method: 选择方法，可以是 least_conn 或 least_time
+ *
+ * 支持的变量：
+ * 该模块没有定义特定的变量，但可以使用通用的upstream变量。
+ *
+ * 使用注意点：
+ * 1. 确保在upstream块内正确配置random指令
+ * 2. 合理设置服务器权重，以影响随机选择的概率分布
+ * 3. 使用"two"参数时，会增加选择开销，但可能提高负载均衡效果
+ * 4. 在高并发场景下，注意随机算法的性能影响
+ * 5. 考虑结合会话持久性机制，以提高缓存命中率
+ * 6. 定期监控负载均衡效果，根据实际情况调整配置
+ * 7. 如果使用least_conn或least_time方法，确保正确配置相关参数
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

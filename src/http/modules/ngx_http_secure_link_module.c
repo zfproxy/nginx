@@ -5,6 +5,34 @@
  */
 
 
+/*
+ * ngx_http_secure_link_module.c
+ *
+ * 该模块提供了安全链接功能，用于验证请求的URL是否被授权访问。
+ *
+ * 支持的功能：
+ * 1. 生成和验证带有过期时间的安全链接
+ * 2. 基于MD5哈希的链接验证
+ * 3. 支持自定义密钥进行链接加密
+ *
+ * 支持的指令：
+ * - secure_link: 设置用于提取安全链接信息的变量
+ * - secure_link_md5: 设置用于验证的MD5哈希表达式
+ * - secure_link_secret: 设置用于生成安全链接的密钥
+ *
+ * 支持的变量：
+ * - $secure_link: 验证结果，可能的值为空字符串（验证失败）或"1"（验证成功）
+ * - $secure_link_expires: 安全链接的过期时间戳
+ *
+ * 使用注意点：
+ * 1. 确保正确配置secure_link和secure_link_md5指令
+ * 2. 使用secure_link_secret时，注意保护密钥的安全性
+ * 3. 在生成安全链接时，需要考虑时间戳的准确性和时钟同步问题
+ * 4. 建议结合其他安全措施一起使用，如HTTPS
+ */
+
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>

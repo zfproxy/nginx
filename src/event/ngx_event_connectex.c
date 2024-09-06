@@ -4,6 +4,39 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_event_connectex.c
+ *
+ * 该文件实现了基于Windows平台的ConnectEx异步连接功能。
+ *
+ * 支持的功能:
+ * 1. 异步建立TCP连接
+ * 2. 高效处理大量并发连接请求
+ * 3. 支持IPv4和IPv6
+ * 4. 连接超时处理
+ * 5. 连接失败重试
+ *
+ * 支持的指令:
+ * - worker_connections (影响最大并发连接数)
+ * - connect_timeout (设置连接超时时间)
+ *
+ * 相关变量:
+ * - ngx_event_connectex_pt (ConnectEx函数指针)
+ * - ngx_posted_events (用于管理待处理的连接事件)
+ * - nconnects (当前待处理的连接数)
+ * - pending_connects (待处理连接队列)
+ *
+ * 使用注意点:
+ * 1. 仅适用于Windows平台
+ * 2. 需要正确初始化ConnectEx函数指针
+ * 3. 合理设置最大并发连接数(NGX_MAX_PENDING_CONN)
+ * 4. 注意处理ConnectEx可能的错误情况
+ * 5. 在高并发场景下，需要注意内存和句柄的使用
+ * 6. 与其他事件模块配合使用时需要注意兼容性
+ * 7. 定期检查和更新，以获取最新的Windows API支持
+ * 8. 注意处理连接超时的情况
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

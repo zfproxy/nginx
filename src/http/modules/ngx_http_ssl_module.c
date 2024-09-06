@@ -4,6 +4,52 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_ssl_module.c
+ *
+ * 该模块提供了HTTPS服务器的SSL/TLS支持。
+ *
+ * 支持的功能:
+ * - SSL/TLS加密通信
+ * - 证书管理
+ * - 密码套件配置
+ * - OCSP Stapling
+ * - 客户端证书验证
+ * - SNI (Server Name Indication) 支持
+ * - SSL会话缓存
+ * - HSTS (HTTP Strict Transport Security)
+ *
+ * 支持的指令:
+ * - ssl_certificate: 设置SSL证书文件路径
+ * - ssl_certificate_key: 设置SSL私钥文件路径
+ * - ssl_protocols: 指定支持的SSL/TLS协议版本
+ * - ssl_ciphers: 指定允许的加密算法
+ * - ssl_verify_client: 配置客户端证书验证
+ * - ssl_session_cache: 配置SSL会话缓存
+ * - ssl_session_timeout: 设置SSL会话超时时间
+ * - ssl_prefer_server_ciphers: 优先使用服务器的加密算法
+ * - ssl_stapling: 启用OCSP Stapling
+ * - ssl_stapling_verify: 验证OCSP响应
+ * - ssl_trusted_certificate: 设置用于验证OCSP响应的受信任证书
+ *
+ * 支持的变量:
+ * - $ssl_protocol: 当前使用的SSL协议版本
+ * - $ssl_cipher: 当前使用的加密算法
+ * - $ssl_client_verify: 客户端证书验证结果
+ * - $ssl_client_s_dn: 客户端证书的主题
+ * - $ssl_server_name: 客户端请求的服务器名称(SNI)
+ *
+ * 使用注意点:
+ * 1. 确保正确配置SSL证书和私钥
+ * 2. 定期更新证书以保证安全性
+ * 3. 选择适当的SSL协议版本和加密算法，平衡安全性和兼容性
+ * 4. 启用OCSP Stapling可以提高性能和安全性
+ * 5. 合理配置SSL会话缓存以提高性能
+ * 6. 使用强密码套件，禁用不安全的加密算法
+ * 7. 考虑启用HSTS以增强安全性
+ * 8. 正确配置SNI以支持多个域名的HTTPS
+ * 9. 监控SSL性能，必要时进行优化
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -14,52 +60,247 @@
 #endif
 
 
+/**
+ * @brief SSL变量处理函数的类型定义
+ *
+ * 这个类型定义了一个函数指针，用于处理SSL相关的变量。
+ * 该函数接受一个连接对象、一个内存池和一个字符串作为参数，
+ * 并返回一个ngx_int_t类型的结果。
+ *
+ * @param c 指向ngx_connection_t结构的指针，表示当前的连接
+ * @param pool 指向ngx_pool_t结构的指针，用于内存分配
+ * @param s 指向ngx_str_t结构的指针，用于存储结果字符串
+ * @return 返回ngx_int_t类型的处理结果
+ */
 typedef ngx_int_t (*ngx_ssl_variable_handler_pt)(ngx_connection_t *c,
     ngx_pool_t *pool, ngx_str_t *s);
 
 
+/**
+ * @brief 定义默认的SSL/TLS密码套件
+ *
+ * 这个宏定义了Nginx默认使用的SSL/TLS密码套件。
+ * "HIGH" 表示使用高强度加密算法
+ * "!aNULL" 排除不提供身份验证的算法
+ * "!MD5" 排除使用MD5哈希算法的密码套件（因为MD5被认为是不安全的）
+ */
 #define NGX_DEFAULT_CIPHERS     "HIGH:!aNULL:!MD5"
+/**
+ * @brief 定义默认的ECDH曲线
+ *
+ * 这个宏定义了Nginx默认使用的ECDH（Elliptic Curve Diffie-Hellman）曲线。
+ * "auto" 表示自动选择最适合的ECDH曲线。
+ * 这允许Nginx在SSL/TLS握手过程中自动选择最优的椭圆曲线，
+ * 以提供更好的性能和安全性。
+ */
 #define NGX_DEFAULT_ECDH_CURVE  "auto"
 
+/**
+ * @brief 定义HTTP ALPN协议字符串
+ *
+ * 这个宏定义了HTTP的应用层协议协商(ALPN)支持的协议列表。
+ * 每个协议由一个长度字节和协议名称组成:
+ * \x08 - 表示后面的协议名称长度为8字节
+ * http/1.1 - HTTP/1.1协议
+ * http/1.0 - HTTP/1.0协议
+ * http/0.9 - HTTP/0.9协议
+ * 
+ * 这个定义允许服务器在TLS握手期间告知客户端它支持的HTTP协议版本。
+ */
 #define NGX_HTTP_ALPN_PROTOS    "\x08http/1.1\x08http/1.0\x08http/0.9"
 
 
 #ifdef TLSEXT_TYPE_application_layer_protocol_negotiation
+/**
+ * @brief ALPN协议选择回调函数
+ *
+ * 该函数用于在SSL/TLS握手过程中选择应用层协议。
+ * 当客户端通过ALPN扩展提供支持的协议列表时，服务器使用此函数来选择最合适的协议。
+ *
+ * @param ssl_conn SSL连接对象
+ * @param out 输出参数，指向选中的协议
+ * @param outlen 输出参数，选中协议的长度
+ * @param in 客户端提供的协议列表
+ * @param inlen 协议列表的长度
+ * @param arg 用户自定义参数
+ * @return 返回SSL_TLSEXT_ERR_OK表示成功选择协议，其他值表示错误
+ */
 static int ngx_http_ssl_alpn_select(ngx_ssl_conn_t *ssl_conn,
     const unsigned char **out, unsigned char *outlen,
     const unsigned char *in, unsigned int inlen, void *arg);
 #endif
 
+/**
+ * @brief 处理SSL静态变量
+ *
+ * 该函数用于处理与SSL相关的静态变量。
+ * 静态变量通常是在配置阶段就确定的值，不会随请求变化。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @param v 指向变量值结构的指针，用于存储变量的值
+ * @param data 与变量相关的附加数据
+ * @return 返回NGX_OK表示成功处理变量，其他值表示错误
+ */
 static ngx_int_t ngx_http_ssl_static_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+/**
+ * @brief 处理SSL动态变量
+ *
+ * 该函数用于处理与SSL相关的动态变量。
+ * 动态变量的值可能会随每个请求而变化，例如客户端证书信息、加密算法等。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @param v 指向变量值结构的指针，用于存储变量的值
+ * @param data 与变量相关的附加数据
+ * @return 返回NGX_OK表示成功处理变量，其他值表示错误
+ */
 static ngx_int_t ngx_http_ssl_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
+/**
+ * @brief 添加SSL相关的变量
+ *
+ * 该函数用于向Nginx配置中添加SSL相关的变量。
+ * 这些变量可以在配置文件中使用，用于访问SSL连接的各种属性和信息。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @return 返回NGX_OK表示成功添加变量，NGX_ERROR表示添加失败
+ */
 static ngx_int_t ngx_http_ssl_add_variables(ngx_conf_t *cf);
+/**
+ * @brief 创建HTTP SSL服务器配置
+ *
+ * 该函数用于为每个HTTP服务器块创建SSL配置结构。
+ * 它会分配内存并初始化ngx_http_ssl_srv_conf_t结构体，
+ * 设置默认值和初始状态。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @return 返回指向新创建的SSL服务器配置结构的指针，如果失败则返回NULL
+ */
 static void *ngx_http_ssl_create_srv_conf(ngx_conf_t *cf);
+/**
+ * @brief 合并HTTP SSL服务器配置
+ *
+ * 该函数用于合并父配置和子配置中的SSL设置。
+ * 在Nginx配置的继承体系中，子配置会继承父配置的设置，
+ * 然后根据需要进行覆盖或修改。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @param parent 指向父配置结构的指针
+ * @param child 指向子配置结构的指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误信息字符串
+ */
 static char *ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf,
     void *parent, void *child);
 
+/**
+ * @brief 编译SSL证书配置
+ *
+ * 该函数用于编译和处理SSL证书相关的配置。
+ * 它可能会解析证书文件、验证证书的有效性，并将其加载到SSL上下文中。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @param conf 指向HTTP SSL服务器配置结构的指针
+ * @return 成功时返回NGX_OK，失败时返回错误码
+ */
 static ngx_int_t ngx_http_ssl_compile_certificates(ngx_conf_t *cf,
     ngx_http_ssl_srv_conf_t *conf);
 
+/**
+ * @brief 处理SSL密码文件配置
+ *
+ * 该函数用于处理SSL密码文件的配置指令。
+ * 它可能会读取包含SSL私钥密码的文件，并将这些密码存储在配置结构中，
+ * 以便在SSL初始化过程中使用。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @param cmd 指向当前正在处理的命令结构的指针
+ * @param conf 指向模块配置结构的指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误信息字符串
+ */
 static char *ngx_http_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+/**
+ * @brief 处理SSL会话缓存配置
+ *
+ * 该函数用于处理SSL会话缓存的配置指令。
+ * 它可能会设置会话缓存的类型（如共享内存、内部缓存等）和大小，
+ * 以优化SSL握手性能。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @param cmd 指向当前正在处理的命令结构的指针
+ * @param conf 指向模块配置结构的指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误信息字符串
+ */
 static char *ngx_http_ssl_session_cache(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+/**
+ * @brief 处理SSL OCSP缓存配置
+ *
+ * 该函数用于处理SSL OCSP（在线证书状态协议）缓存的配置指令。
+ * 它可能会设置OCSP响应的缓存机制，以提高OCSP验证的效率。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @param cmd 指向当前正在处理的命令结构的指针
+ */
 static char *ngx_http_ssl_ocsp_cache(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
+/**
+ * @brief 检查SSL配置命令
+ *
+ * 该函数用于检查SSL配置命令的有效性。
+ * 它可能会验证配置命令的语法、参数等是否正确。
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @param post 指向后处理函数的指针
+ * @param data 指向配置数据的指针
+ * @return 成功时返回NULL，失败时返回错误信息字符串
+ */
 static char *ngx_http_ssl_conf_command_check(ngx_conf_t *cf, void *post,
     void *data);
 
+/**
+ * @brief 初始化HTTP SSL模块
+ *
+ * 该函数用于初始化HTTP SSL模块。
+ * 它可能会执行以下任务:
+ * - 设置SSL相关的回调函数
+ * - 初始化SSL上下文
+ * - 加载SSL证书和私钥
+ * - 配置SSL参数
+ * - 注册SSL相关的处理程序
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @return 成功时返回NGX_OK，失败时返回NGX_ERROR
+ */
 static ngx_int_t ngx_http_ssl_init(ngx_conf_t *cf);
 #if (NGX_QUIC_OPENSSL_COMPAT)
+/**
+ * @brief 初始化HTTP SSL模块的QUIC兼容性
+ *
+ * 该函数用于初始化HTTP SSL模块的QUIC（Quick UDP Internet Connections）兼容性。
+ * 它可能会执行以下任务:
+ * - 配置QUIC相关的SSL参数
+ * - 设置QUIC专用的加密套件
+ * - 初始化QUIC所需的特殊SSL上下文
+ *
+ * @param cf 指向Nginx配置结构的指针
+ * @param addr 指向HTTP配置地址结构的指针
+ * @return 成功时返回NGX_OK，失败时返回NGX_ERROR
+ */
 static ngx_int_t ngx_http_ssl_quic_compat_init(ngx_conf_t *cf,
     ngx_http_conf_addr_t *addr);
 #endif
 
 
+/**
+ * @brief SSL/TLS协议版本的位掩码配置数组
+ *
+ * 这个静态数组定义了支持的SSL/TLS协议版本及其对应的位掩码值。
+ * 它用于配置Nginx中允许使用的SSL/TLS协议版本。
+ * 每个元素包含一个协议版本的字符串表示和对应的位掩码值。
+ */
 static ngx_conf_bitmask_t  ngx_http_ssl_protocols[] = {
     { ngx_string("SSLv2"), NGX_SSL_SSLv2 },
     { ngx_string("SSLv3"), NGX_SSL_SSLv3 },
@@ -71,6 +312,13 @@ static ngx_conf_bitmask_t  ngx_http_ssl_protocols[] = {
 };
 
 
+/**
+ * @brief SSL客户端证书验证模式的枚举配置数组
+ *
+ * 这个静态数组定义了支持的SSL客户端证书验证模式。
+ * 它用于配置Nginx中如何验证客户端证书。
+ * 每个元素包含一个验证模式的字符串表示和对应的整数值。
+ */
 static ngx_conf_enum_t  ngx_http_ssl_verify[] = {
     { ngx_string("off"), 0 },
     { ngx_string("on"), 1 },
@@ -80,6 +328,13 @@ static ngx_conf_enum_t  ngx_http_ssl_verify[] = {
 };
 
 
+/**
+ * @brief OCSP（在线证书状态协议）配置选项
+ *
+ * 这个静态数组定义了OCSP的配置选项。
+ * OCSP用于实时检查SSL/TLS证书的有效性状态。
+ * 数组中的每个元素包含一个配置选项的字符串表示和对应的整数值。
+ */
 static ngx_conf_enum_t  ngx_http_ssl_ocsp[] = {
     { ngx_string("off"), 0 },
     { ngx_string("on"), 1 },
@@ -88,10 +343,24 @@ static ngx_conf_enum_t  ngx_http_ssl_ocsp[] = {
 };
 
 
+/**
+ * @brief SSL配置命令后处理结构
+ *
+ * 这个静态变量定义了一个配置后处理结构，用于SSL配置命令的检查。
+ * 它包含一个函数指针，指向ngx_http_ssl_conf_command_check函数，
+ * 该函数在SSL配置命令被解析后执行，用于进行额外的验证或处理。
+ */
 static ngx_conf_post_t  ngx_http_ssl_conf_command_post =
     { ngx_http_ssl_conf_command_check };
 
 
+/**
+ * @brief HTTP SSL模块的命令数组
+ *
+ * 这个静态数组定义了HTTP SSL模块支持的所有配置指令。
+ * 每个元素都是一个ngx_command_t结构，描述了一个特定的SSL相关配置指令。
+ * 这个数组将被Nginx的配置解析器使用，以识别和处理SSL相关的配置。
+ */
 static ngx_command_t  ngx_http_ssl_commands[] = {
 
     { ngx_string("ssl_certificate"),
@@ -294,6 +563,13 @@ static ngx_command_t  ngx_http_ssl_commands[] = {
 };
 
 
+/**
+ * @brief HTTP SSL模块的上下文结构
+ *
+ * 这个静态变量定义了HTTP SSL模块的上下文结构。
+ * 它包含了模块在不同配置阶段的回调函数指针。
+ * 这个结构体用于告诉Nginx核心如何处理该模块的配置和初始化。
+ */
 static ngx_http_module_t  ngx_http_ssl_module_ctx = {
     ngx_http_ssl_add_variables,            /* preconfiguration */
     ngx_http_ssl_init,                     /* postconfiguration */
@@ -309,6 +585,13 @@ static ngx_http_module_t  ngx_http_ssl_module_ctx = {
 };
 
 
+/**
+ * @brief HTTP SSL模块的定义
+ *
+ * 这个结构定义了Nginx的HTTP SSL模块。
+ * 它包含了模块的基本信息、上下文、指令集等。
+ * 这是HTTP SSL模块的核心结构，用于将SSL/TLS功能集成到HTTP处理中。
+ */
 ngx_module_t  ngx_http_ssl_module = {
     NGX_MODULE_V1,
     &ngx_http_ssl_module_ctx,              /* module context */
@@ -325,6 +608,13 @@ ngx_module_t  ngx_http_ssl_module = {
 };
 
 
+/**
+ * @brief HTTP SSL模块的变量数组
+ *
+ * 这个静态数组定义了HTTP SSL模块支持的所有变量。
+ * 每个元素都是一个ngx_http_variable_t结构，描述了一个特定的SSL相关变量。
+ * 这些变量可以在Nginx配置中使用，用于访问SSL连接的各种属性。
+ */
 static ngx_http_variable_t  ngx_http_ssl_vars[] = {
 
     { ngx_string("ssl_protocol"), NULL, ngx_http_ssl_static_variable,
@@ -403,12 +693,33 @@ static ngx_http_variable_t  ngx_http_ssl_vars[] = {
 };
 
 
+/**
+ * @brief HTTP SSL会话ID上下文
+ *
+ * 这个静态变量定义了HTTP SSL会话的ID上下文。
+ * 它被设置为字符串"HTTP"，用于在SSL会话缓存中唯一标识HTTP模块的SSL会话。
+ * 这有助于区分不同模块（如HTTP、SMTP等）的SSL会话，确保会话的正确管理和复用。
+ */
 static ngx_str_t ngx_http_ssl_sess_id_ctx = ngx_string("HTTP");
 
 
 #ifdef TLSEXT_TYPE_application_layer_protocol_negotiation
 
 static int
+/**
+ * @brief SSL ALPN选择回调函数
+ *
+ * 该函数用于在SSL握手过程中选择应用层协议协商(ALPN)的协议。
+ * 它会根据客户端支持的协议和服务器配置来选择最合适的协议。
+ *
+ * @param ssl_conn SSL连接对象
+ * @param out 输出参数，指向选中的协议
+ * @param outlen 输出参数，选中协议的长度
+ * @param in 客户端支持的协议列表
+ * @param inlen 客户端协议列表的长度
+ * @param arg 额外的参数（通常未使用）
+ * @return 成功时返回SSL_TLSEXT_ERR_OK，失败时返回其他错误码
+ */
 ngx_http_ssl_alpn_select(ngx_ssl_conn_t *ssl_conn, const unsigned char **out,
     unsigned char *outlen, const unsigned char *in, unsigned int inlen,
     void *arg)

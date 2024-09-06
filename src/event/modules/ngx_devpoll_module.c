@@ -4,6 +4,35 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_devpoll_module.c
+ *
+ * 该模块实现了基于 /dev/poll 的事件驱动机制，主要用于 Solaris 操作系统。
+ *
+ * 支持的功能：
+ * - 高效的 I/O 事件多路复用
+ * - 动态添加、删除和修改监听的文件描述符
+ * - 支持边缘触发和水平触发模式
+ *
+ * 支持的指令：
+ * - devpoll_changes: 设置单次可以处理的最大事件变更数
+ * - devpoll_events: 设置单次可以处理的最大事件数
+ *
+ * 相关变量：
+ * - dp: /dev/poll 设备的文件描述符
+ * - change_list: 存储待处理的事件变更
+ * - event_list: 存储已发生的事件
+ * - nchanges: 当前待处理的事件变更数
+ * - max_changes: 最大可处理的事件变更数
+ * - nevents: 最大可处理的事件数
+ *
+ * 使用注意点：
+ * 1. 该模块仅适用于支持 /dev/poll 的系统，主要是 Solaris。
+ * 2. 需要合理配置 devpoll_changes 和 devpoll_events 以平衡性能和资源使用。
+ * 3. 在高并发场景下，该模块可能比传统的 select 或 poll 方法更高效。
+ * 4. 使用时需要注意文件描述符的限制，确保不超过系统允许的最大值。
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

@@ -4,6 +4,36 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_sub_filter_module.c
+ *
+ * 该模块提供HTTP响应内容替换功能
+ *
+ * 支持的功能:
+ * - 基于正则表达式的内容替换
+ * - 支持多个替换规则
+ * - 可以替换为静态内容或动态生成的内容
+ * - 支持一次性替换或多次替换
+ * - 可以修改Last-Modified头
+ *
+ * 支持的指令:
+ * - sub_filter            # 定义替换规则
+ * - sub_filter_types      # 指定需要处理的MIME类型
+ * - sub_filter_once       # 控制是否只替换一次
+ * - sub_filter_last_modified  # 控制是否修改Last-Modified头
+ *
+ * 支持的变量:
+ * - $request_uri          # 请求的URI
+ * - $document_uri         # 经过内部重定向后的URI
+ * 
+ * 使用注意点:
+ * 1. 替换操作可能会影响响应的性能，尤其是在处理大型响应时
+ * 2. 替换规则的顺序很重要，因为它们是按顺序应用的
+ * 3. 使用复杂的正则表达式可能会显著增加处理时间
+ * 4. 替换后的内容长度变化可能会影响Content-Length头
+ * 5. 对于大型响应，建议使用sub_filter_once on来提高性能
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

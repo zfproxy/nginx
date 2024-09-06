@@ -4,6 +4,28 @@
  */
 
 
+/**
+ * @file ngx_syslog.c
+ * @brief Nginx系统日志(syslog)模块实现
+ *
+ * 本文件实现了Nginx与系统日志(syslog)服务的集成功能。
+ *
+ * 主要功能:
+ * - 配置和初始化syslog连接
+ * - 发送日志消息到syslog服务器
+ * - 支持UDP和TCP协议
+ * - 支持自定义facility和severity级别
+ * - 支持日志消息格式化
+ *
+ * 使用注意:
+ * 1. 正确配置syslog服务器地址和端口
+ * 2. 合理设置facility和severity级别
+ * 3. 注意网络环境对日志传输的影响
+ * 4. 大量日志可能会影响性能，请合理使用
+ * 5. 确保syslog服务器能够正确接收和处理Nginx发送的日志
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>

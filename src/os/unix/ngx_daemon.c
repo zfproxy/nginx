@@ -4,6 +4,22 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_daemon.c
+ *
+ * 该文件实现了Nginx的守护进程功能。
+ * 主要包含ngx_daemon()函数,用于将Nginx转换为守护进程运行。
+ * 
+ * 守护进程化的主要步骤:
+ * 1. 通过fork()创建子进程
+ * 2. 父进程退出
+ * 3. 子进程调用setsid()创建新会话
+ * 4. 设置umask
+ * 5. 关闭标准输入输出流
+ *
+ * 这些步骤确保了Nginx可以在后台长期稳定运行,不受终端影响。
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

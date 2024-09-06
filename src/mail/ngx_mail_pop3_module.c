@@ -4,6 +4,33 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_pop3_module.c
+ *
+ * 该模块实现了 POP3 协议的支持，用于 Nginx 邮件代理服务器。
+ *
+ * 支持的功能：
+ * - 基本的 POP3 命令处理
+ * - 多种身份验证方法（PLAIN, APOP, CRAM-MD5, EXTERNAL）
+ * - TLS/SSL 加密支持
+ * - 邮件代理和负载均衡
+ *
+ * 支持的指令：
+ * - pop3_auth: 设置允许的身份验证方法
+ * - pop3_capabilities: 自定义服务器能力列表
+ * - pop3_client_buffer_size: 设置客户端缓冲区大小
+ *
+ * 相关变量：
+ * - $pop3_user: 当前认证的用户名
+ * - $pop3_passwd: 当前用户的密码（仅在 auth_http 模块中可用）
+ *
+ * 使用注意点：
+ * 1. 确保正确配置 SSL/TLS 证书，以支持加密连接。
+ * 2. 合理设置身份验证方法，避免使用不安全的方式。
+ * 3. 注意调整客户端缓冲区大小，以适应不同的邮件大小和网络环境。
+ * 4. 在使用代理功能时，确保后端服务器配置正确且可用。
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

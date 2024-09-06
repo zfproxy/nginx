@@ -4,6 +4,53 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream.c - Nginx流处理模块
+ *
+ * 该模块提供了TCP/UDP流量处理的功能，支持负载均衡、访问控制、SSL/TLS等。
+ *
+ * 主要功能：
+ * 1. TCP/UDP代理
+ * 2. 负载均衡
+ * 3. SSL/TLS支持
+ * 4. 访问控制
+ * 5. 限流
+ * 6. 日志记录
+ *
+ * 支持的指令：
+ * - stream { ... }         : 定义stream上下文
+ * - server { ... }         : 定义服务器块
+ * - listen                 : 配置监听地址和端口
+ * - proxy_pass             : 设置上游服务器
+ * - proxy_timeout          : 设置代理超时时间
+ * - proxy_connect_timeout  : 设置连接上游服务器的超时时间
+ * - ssl_certificate        : 设置SSL证书
+ * - ssl_certificate_key    : 设置SSL证书私钥
+ * - access_log             : 配置访问日志
+ * - deny                   : 拒绝访问
+ * - allow                  : 允许访问
+ *
+ * 支持的变量：
+ * $remote_addr             : 客户端地址
+ * $remote_port             : 客户端端口
+ * $server_addr             : 服务器地址
+ * $server_port             : 服务器端口
+ * $protocol                : 使用的协议（TCP或UDP）
+ * $status                  : 会话状态
+ * $bytes_sent              : 发送的字节数
+ * $bytes_received          : 接收的字节数
+ * $session_time            : 会话持续时间
+ *
+ * 使用注意点：
+ * 1. stream模块需要在nginx.conf的http块之外配置
+ * 2. 确保编译Nginx时包含了stream模块支持
+ * 3. 使用SSL/TLS时，需要正确配置证书和私钥
+ * 4. 合理设置超时时间，避免资源耗尽
+ * 5. 谨慎使用访问控制指令，防止误封正常流量
+ * 6. 注意负载均衡策略的选择，以适应具体应用场景
+ * 7. 定期检查日志，及时发现潜在问题
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -11,44 +58,70 @@
 #include <ngx_stream.h>
 
 
+/* 处理stream配置块的函数 */
 static char *ngx_stream_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
+/* 初始化stream模块的处理阶段 */
 static ngx_int_t ngx_stream_init_phases(ngx_conf_t *cf,
     ngx_stream_core_main_conf_t *cmcf);
+
+/* 初始化stream模块的阶段处理器 */
 static ngx_int_t ngx_stream_init_phase_handlers(ngx_conf_t *cf,
     ngx_stream_core_main_conf_t *cmcf);
 
+/* 为指定的端口添加监听地址 */
 static ngx_int_t ngx_stream_add_addresses(ngx_conf_t *cf,
     ngx_stream_core_srv_conf_t *cscf, ngx_stream_conf_port_t *port,
     ngx_stream_listen_opt_t *lsopt);
+
+/* 为指定的端口添加单个监听地址 */
 static ngx_int_t ngx_stream_add_address(ngx_conf_t *cf,
     ngx_stream_core_srv_conf_t *cscf, ngx_stream_conf_port_t *port,
     ngx_stream_listen_opt_t *lsopt);
+
+/* 向指定的地址配置中添加服务器 */
 static ngx_int_t ngx_stream_add_server(ngx_conf_t *cf,
     ngx_stream_core_srv_conf_t *cscf, ngx_stream_conf_addr_t *addr);
 
+/* 优化服务器配置，包括合并相同IP和端口的监听配置 */
 static ngx_int_t ngx_stream_optimize_servers(ngx_conf_t *cf,
     ngx_stream_core_main_conf_t *cmcf, ngx_array_t *ports);
+
+/* 处理服务器名称配置，包括通配符和正则表达式匹配 */
 static ngx_int_t ngx_stream_server_names(ngx_conf_t *cf,
     ngx_stream_core_main_conf_t *cmcf, ngx_stream_conf_addr_t *addr);
+
+/* 比较两个配置地址的函数，用于排序 */
 static ngx_int_t ngx_stream_cmp_conf_addrs(const void *one, const void *two);
+
+/* 比较两个DNS通配符的函数，用于排序 */
 static int ngx_libc_cdecl ngx_stream_cmp_dns_wildcards(const void *one,
     const void *two);
 
+/* 初始化监听端口的配置 */
 static ngx_int_t ngx_stream_init_listening(ngx_conf_t *cf,
     ngx_stream_conf_port_t *port);
+
+/* 为指定的地址添加一个监听对象 */
 static ngx_listening_t *ngx_stream_add_listening(ngx_conf_t *cf,
     ngx_stream_conf_addr_t *addr);
+
+/* 为IPv4地址添加监听配置 */
 static ngx_int_t ngx_stream_add_addrs(ngx_conf_t *cf, ngx_stream_port_t *stport,
     ngx_stream_conf_addr_t *addr);
+
 #if (NGX_HAVE_INET6)
+/* 为IPv6地址添加监听配置 */
 static ngx_int_t ngx_stream_add_addrs6(ngx_conf_t *cf,
     ngx_stream_port_t *stport, ngx_stream_conf_addr_t *addr);
 #endif
 
 
+/* 定义支持的最大模块数量 */
 ngx_uint_t  ngx_stream_max_module;
 
 
+/* 定义顶层过滤器函数指针 */
 ngx_stream_filter_pt  ngx_stream_top_filter;
 
 

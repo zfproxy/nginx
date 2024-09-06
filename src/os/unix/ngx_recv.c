@@ -4,12 +4,48 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_recv.c
+ *
+ * 该文件实现了Nginx在Unix系统上的数据接收功能。
+ *
+ * 支持的功能:
+ * 1. 封装底层recv系统调用
+ * 2. 处理非阻塞I/O
+ * 3. 支持kqueue等事件模型
+ * 4. 错误处理和日志记录
+ * 5. EOF检测
+ * 6. 处理中断的系统调用(EINTR)
+ * 7. 支持SSL连接的数据接收
+ *
+ * 使用注意点:
+ * 1. 调用前需确保连接(ngx_connection_t)已正确初始化
+ * 2. 非阻塞模式下可能返回NGX_AGAIN，调用者需正确处理
+ * 3. 需要正确处理EOF和各种错误情况
+ * 4. 对于kqueue等特殊事件模型，需注意其特有的行为
+ * 5. 大量小数据包可能导致系统调用次数增加，影响性能
+ * 6. SSL连接需要特殊处理，可能涉及额外的内存拷贝
+ * 7. 在多线程环境中使用时需注意线程安全性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>
 
 
+/**
+ * @brief 在Unix系统上接收数据
+ *
+ * 这个函数是Nginx在Unix系统上用于接收数据的核心函数。
+ * 它封装了底层的recv系统调用，并处理了各种可能的情况。
+ *
+ * @param c 指向ngx_connection_t结构的指针，表示当前的连接
+ * @param buf 指向接收数据的缓冲区
+ * @param size 缓冲区的大小，即最多可以接收的字节数
+ *
+ * @return 成功时返回实际接收的字节数，出错时返回负值
+ */
 ssize_t
 ngx_unix_recv(ngx_connection_t *c, u_char *buf, size_t size)
 {

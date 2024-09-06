@@ -4,6 +4,44 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_event_openssl_stapling.c
+ *
+ * 该文件实现了Nginx的OCSP Stapling功能，用于提高SSL/TLS连接的性能和安全性。
+ *
+ * 支持的功能:
+ * 1. OCSP响应缓存
+ * 2. 自动更新OCSP响应
+ * 3. 多证书链支持
+ * 4. 异步OCSP请求
+ * 5. OCSP响应验证
+ * 6. 共享内存存储OCSP响应
+ *
+ * 支持的指令:
+ * - ssl_stapling on|off
+ * - ssl_stapling_file
+ * - ssl_stapling_responder
+ * - ssl_stapling_verify on|off
+ * - ssl_trusted_certificate
+ * - resolver
+ * - resolver_timeout
+ *
+ * 相关变量:
+ * - ngx_ssl_stapling_t
+ * - ngx_ssl_ocsp_ctx_t
+ * - ngx_ssl_ocsp_cache_t
+ *
+ * 使用注意点:
+ * 1. 确保正确配置OCSP响应服务器地址
+ * 2. 合理设置OCSP响应缓存时间
+ * 3. 注意处理OCSP请求可能的网络延迟
+ * 4. 在高并发场景下，注意控制OCSP请求频率
+ * 5. 定期检查和更新受信任的根证书
+ * 6. 合理配置共享内存大小，避免内存不足
+ * 7. 注意处理OCSP响应验证失败的情况
+ * 8. 监控OCSP Stapling的性能影响
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

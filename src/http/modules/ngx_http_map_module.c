@@ -4,6 +4,24 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_map_module.c
+ *
+ * 该模块实现了 Nginx 的 map 指令功能，用于创建变量映射。
+ *
+ * 支持的功能:
+ * - 基于字符串或正则表达式的键值映射
+ * - 支持主机名匹配
+ * - 支持默认值设置
+ * - 支持哈希表优化
+ *
+ * 支持的指令:
+ * - map: 创建一个新的映射
+ *
+ * 相关变量:
+ * - $map_hash_max_size: 映射哈希表的最大大小
+ * - $map_hash_bucket_size: 映射哈希表的桶大小
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

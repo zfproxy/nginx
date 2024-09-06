@@ -4,6 +4,38 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_proxy_module.c
+ *
+ * 该模块实现了邮件代理功能，支持POP3、IMAP和SMTP协议。
+ *
+ * 主要功能:
+ * - 邮件协议代理转发
+ * - XCLIENT扩展支持
+ * - SMTP AUTH支持
+ * - 代理协议(PROXY protocol)支持
+ * - 错误消息传递
+ *
+ * 支持的指令:
+ * - proxy: 启用/禁用代理功能
+ * - proxy_pass_error_message: 是否传递上游错误消息
+ * - proxy_xclient: 启用/禁用XCLIENT支持
+ * - proxy_smtp_auth: 启用/禁用SMTP AUTH支持
+ * - proxy_protocol: 启用/禁用代理协议
+ * - proxy_buffer: 设置代理缓冲区大小
+ * - proxy_timeout: 设置代理超时时间
+ *
+ * 相关变量:
+ * $proxy_protocol_addr: 客户端地址(来自代理协议)
+ * $proxy_protocol_port: 客户端端口(来自代理协议)
+ *
+ * 使用注意:
+ * 1. 确保正确配置上游服务器地址
+ * 2. 根据实际需求调整缓冲区大小和超时时间
+ * 3. 使用XCLIENT时需要上游服务器支持
+ * 4. 启用代理协议时，确保上游服务器也支持该协议
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

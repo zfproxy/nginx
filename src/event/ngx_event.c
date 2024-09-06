@@ -4,6 +4,47 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_event.c
+ *
+ * 该文件实现了Nginx的核心事件处理机制，是Nginx事件驱动架构的核心组件。
+ *
+ * 支持的功能:
+ * 1. 事件模块的初始化和配置
+ * 2. 事件循环的管理
+ * 3. 定时器事件的处理
+ * 4. 连接的管理和计数
+ * 5. accept mutex的实现
+ * 6. 不同事件驱动模型的集成(如epoll、kqueue等)
+ *
+ * 支持的指令:
+ * - worker_connections
+ * - use (选择事件驱动模型)
+ * - debug_connection
+ * - accept_mutex
+ * - accept_mutex_delay
+ * - timer_resolution
+ *
+ * 重要变量:
+ * - ngx_event_actions: 当前使用的事件驱动模型的操作集
+ * - ngx_event_flags: 事件标志
+ * - ngx_accept_mutex: accept互斥锁
+ * - ngx_use_accept_mutex: 是否使用accept互斥锁
+ * - ngx_connection_counter: 连接计数器
+ *
+ * 使用注意点:
+ * 1. 合理配置worker_connections，避免资源耗尽
+ * 2. 选择适合系统的事件驱动模型(epoll、kqueue等)
+ * 3. 在高并发场景下，注意调整accept_mutex相关参数
+ * 4. 合理设置timer_resolution，平衡精度和性能
+ * 5. 使用debug_connection时注意性能影响
+ * 6. 注意不同事件驱动模型的特性和限制
+ * 7. 在多进程模式下，注意共享内存的使用和同步
+ * 8. 定期检查连接数，避免达到系统限制
+ * 9. 注意处理事件循环中的异常情况
+ * 10. 在自定义模块中正确使用事件API
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

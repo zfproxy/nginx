@@ -4,6 +4,52 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_xslt_filter_module.c
+ *
+ * 该模块实现了使用XSLT对XML响应进行转换的功能。
+ *
+ * 主要功能:
+ * - 对XML响应应用XSLT样式表进行转换
+ * - 支持多个XSLT样式表
+ * - 支持XSLT参数传递
+ * - 支持DTD验证
+ * - 支持EXSLT扩展(如果编译时启用)
+ *
+ * 支持的指令:
+ * - xml_entities: 指定XML实体文件
+ *   语法: xml_entities file;
+ *   上下文: http, server, location
+ *
+ * - xslt_stylesheet: 指定XSLT样式表文件
+ *   语法: xslt_stylesheet file [param=value ...];
+ *   上下文: location
+ *
+ * - xslt_types: 指定需要进行XSLT转换的MIME类型
+ *   语法: xslt_types mime-type ...;
+ *   默认值: text/xml
+ *   上下文: http, server, location
+ *
+ * - xslt_param: 设置XSLT参数
+ *   语法: xslt_param name value;
+ *   上下文: http, server, location
+ *
+ * - xslt_string_param: 设置XSLT字符串参数
+ *   语法: xslt_string_param name value;
+ *   上下文: http, server, location
+ *
+ * 提供的变量:
+ * 该模块不提供额外的变量
+ *
+ * 使用注意点:
+ * 1. 确保libxml2和libxslt库正确安装并链接
+ * 2. XSLT转换可能会消耗大量CPU资源，建议在生产环境中谨慎使用
+ * 3. 对于大型XML文档，可能需要调整内存限制
+ * 4. 使用xslt_param和xslt_string_param时注意参数值的转义
+ * 5. 如果使用DTD验证，确保DTD文件存在且可访问
+ * 6. 在处理敏感数据时，注意XSLT的安全性问题
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

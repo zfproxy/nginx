@@ -4,6 +4,44 @@
  * Copyright (C) Valentin V. Bartenev
  */
 
+/*
+ * ngx_http_v2.c
+ *
+ * 该文件实现了HTTP/2协议的核心功能。
+ *
+ * 支持的功能:
+ * 1. HTTP/2帧的处理和解析
+ * 2. HTTP/2连接的建立和管理
+ * 3. HTTP/2流的创建和控制
+ * 4. HTTP/2头部压缩(HPACK)
+ * 5. HTTP/2服务器推送
+ * 6. HTTP/2流量控制
+ * 7. HTTP/2优先级处理
+ * 8. HTTP/2设置帧的处理
+ * 9. HTTP/2错误处理和状态码
+ *
+ * 支持的指令:
+ * - http2_max_concurrent_streams: 设置最大并发流数量
+ * - http2_max_field_size: 设置最大头部字段大小
+ * - http2_max_header_size: 设置最大头部大小
+ * - http2_recv_timeout: 设置接收超时时间
+ * - http2_idle_timeout: 设置空闲连接超时时间
+ *
+ * 支持的变量:
+ * - $http2: 如果请求使用HTTP/2协议，则为"h2"，否则为空字符串
+ * - $http2_stream_id: 当前HTTP/2流的ID
+ *
+ * 使用注意点:
+ * 1. 确保正确配置SSL/TLS，HTTP/2需要TLS 1.2或更高版本
+ * 2. 合理设置并发流数量，避免服务器过载
+ * 3. 注意调整接收缓冲区大小，以适应不同的网络环境
+ * 4. 监控HTTP/2连接状态，及时处理异常情况
+ * 5. 合理使用服务器推送功能，避免推送无用资源
+ * 6. 注意流量控制，避免单个流占用过多资源
+ * 7. 定期检查和更新HPACK动态表，优化头部压缩效率
+ * 8. 在处理大量并发请求时，注意服务器资源的合理分配
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

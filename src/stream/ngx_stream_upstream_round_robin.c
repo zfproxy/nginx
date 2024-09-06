@@ -4,6 +4,40 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_upstream_round_robin.c
+ *
+ * 该模块实现了Nginx流模块的上游轮询负载均衡算法。
+ *
+ * 支持的功能：
+ * 1. 轮询负载均衡
+ * 2. 加权轮询
+ * 3. 动态调整服务器权重
+ * 4. 后备服务器支持
+ * 5. 失败重试机制
+ * 6. SSL会话保持
+ *
+ * 支持的指令：
+ * - server: 在upstream块内定义上游服务器
+ *   语法: server address [parameters];
+ *   参数包括: weight, max_fails, fail_timeout, backup
+ *
+ * 支持的变量：
+ * $upstream_addr: 处理请求的上游服务器的IP地址和端口
+ * $upstream_connect_time: 与上游服务器建立连接所花费的时间
+ * $upstream_first_byte_time: 接收上游服务器响应第一个字节的时间
+ * $upstream_session_time: 与上游服务器的整个会话时间
+ *
+ * 使用注意点：
+ * 1. 合理设置服务器权重，以实现期望的负载分配
+ * 2. 适当配置max_fails和fail_timeout，以快速检测和隔离故障服务器
+ * 3. 使用backup参数标记备用服务器，提高系统可用性
+ * 4. 在高并发场景下，注意调整连接池大小和超时设置
+ * 5. 如果使用SSL，确保正确配置SSL会话复用，以提高性能
+ * 6. 定期检查负载均衡效果，根据实际情况调整配置
+ * 7. 考虑结合其他模块（如健康检查）使用，以提高负载均衡的智能性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

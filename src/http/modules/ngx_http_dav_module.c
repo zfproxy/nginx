@@ -4,65 +4,140 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_dav_module.c
+ *
+ * 该模块实现了Nginx的WebDAV功能。
+ *
+ * 支持的功能:
+ * 1. 处理PUT请求，支持文件上传
+ * 2. 处理DELETE请求，支持删除文件和目录
+ * 3. 处理MKCOL请求，支持创建目录
+ * 4. 处理COPY和MOVE请求，支持文件和目录的复制与移动
+ * 5. 支持深度操作和递归删除
+ *
+ * 支持的指令:
+ * - dav_methods: 设置允许的DAV方法
+ *   语法: dav_methods off | PUT DELETE MKCOL COPY MOVE;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * - create_full_put_path: 是否为PUT请求创建完整路径
+ *   语法: create_full_put_path on | off;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * - min_delete_depth: 设置允许DELETE操作的最小目录深度
+ *   语法: min_delete_depth number;
+ *   默认值: 0
+ *   上下文: http, server, location
+ *
+ * - dav_access: 设置新创建文件和目录的访问权限
+ *   语法: dav_access users:rw group:rw all:r;
+ *   默认值: user:rw
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * 该模块不提供任何变量。
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/* DAV模块关闭标志 */
 #define NGX_HTTP_DAV_OFF             2
 
 
-#define NGX_HTTP_DAV_NO_DEPTH        -3
-#define NGX_HTTP_DAV_INVALID_DEPTH   -2
-#define NGX_HTTP_DAV_INFINITY_DEPTH  -1
+/* DAV深度相关常量 */
+#define NGX_HTTP_DAV_NO_DEPTH        -3  /* 不允许深度操作 */
+#define NGX_HTTP_DAV_INVALID_DEPTH   -2  /* 无效的深度值 */
+#define NGX_HTTP_DAV_INFINITY_DEPTH  -1  /* 无限深度 */
 
 
+/* DAV模块位置配置结构 */
 typedef struct {
-    ngx_uint_t  methods;
-    ngx_uint_t  access;
-    ngx_uint_t  min_delete_depth;
-    ngx_flag_t  create_full_put_path;
+    ngx_uint_t  methods;              /* 允许的DAV方法 */
+    ngx_uint_t  access;               /* 访问权限 */
+    ngx_uint_t  min_delete_depth;     /* 最小删除深度 */
+    ngx_flag_t  create_full_put_path; /* 是否创建完整PUT路径 */
 } ngx_http_dav_loc_conf_t;
 
 
+/* DAV复制操作上下文结构 */
 typedef struct {
-    ngx_str_t   path;
-    size_t      len;
+    ngx_str_t   path;                 /* 目标路径 */
+    size_t      len;                  /* 路径长度 */
 } ngx_http_dav_copy_ctx_t;
 
 
+/* 处理DAV请求的主要函数 */
 static ngx_int_t ngx_http_dav_handler(ngx_http_request_t *r);
 
+/* 处理PUT请求的函数 */
 static void ngx_http_dav_put_handler(ngx_http_request_t *r);
 
+/* 处理DELETE请求的主函数 */
 static ngx_int_t ngx_http_dav_delete_handler(ngx_http_request_t *r);
+
+/* 删除指定路径的文件或目录 */
 static ngx_int_t ngx_http_dav_delete_path(ngx_http_request_t *r,
     ngx_str_t *path, ngx_uint_t dir);
+
+/* 删除目录的回调函数 */
 static ngx_int_t ngx_http_dav_delete_dir(ngx_tree_ctx_t *ctx, ngx_str_t *path);
+
+/* 删除文件的回调函数 */
 static ngx_int_t ngx_http_dav_delete_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
+
+/* 空操作函数，用于遍历目录树时跳过某些操作 */
 static ngx_int_t ngx_http_dav_noop(ngx_tree_ctx_t *ctx, ngx_str_t *path);
 
+/* 处理MKCOL请求的函数 */
 static ngx_int_t ngx_http_dav_mkcol_handler(ngx_http_request_t *r,
     ngx_http_dav_loc_conf_t *dlcf);
 
+/* 处理COPY和MOVE请求的函数 */
 static ngx_int_t ngx_http_dav_copy_move_handler(ngx_http_request_t *r);
+
+/* 复制目录的函数 */
 static ngx_int_t ngx_http_dav_copy_dir(ngx_tree_ctx_t *ctx, ngx_str_t *path);
+
+/* 复制目录时间属性的函数 */
 static ngx_int_t ngx_http_dav_copy_dir_time(ngx_tree_ctx_t *ctx,
     ngx_str_t *path);
+
+/* 复制目录树中文件的函数 */
 static ngx_int_t ngx_http_dav_copy_tree_file(ngx_tree_ctx_t *ctx,
     ngx_str_t *path);
 
+/* 解析HTTP请求中的Depth头部，返回深度值 */
 static ngx_int_t ngx_http_dav_depth(ngx_http_request_t *r, ngx_int_t dflt);
+
+/* 记录DAV操作错误，并返回适当的HTTP状态码 */
 static ngx_int_t ngx_http_dav_error(ngx_log_t *log, ngx_err_t err,
     ngx_int_t not_found, char *failed, u_char *path);
+
+/* 设置DAV操作后的Location头部 */
 static ngx_int_t ngx_http_dav_location(ngx_http_request_t *r);
+
+/* 创建DAV模块的location配置结构 */
 static void *ngx_http_dav_create_loc_conf(ngx_conf_t *cf);
+
+/* 合并DAV模块的location配置 */
 static char *ngx_http_dav_merge_loc_conf(ngx_conf_t *cf,
     void *parent, void *child);
+
+/* DAV模块的初始化函数 */
 static ngx_int_t ngx_http_dav_init(ngx_conf_t *cf);
 
 
+/* 定义DAV方法的位掩码数组
+ * 这个数组用于配置允许的DAV方法
+ * 每个元素包含方法的字符串表示和对应的位掩码值
+ */
 static ngx_conf_bitmask_t  ngx_http_dav_methods_mask[] = {
     { ngx_string("off"), NGX_HTTP_DAV_OFF },
     { ngx_string("put"), NGX_HTTP_PUT },

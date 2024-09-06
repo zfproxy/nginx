@@ -4,6 +4,29 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_v3_filter_module.c
+ *
+ * 该模块实现了HTTP/3协议的过滤功能。
+ *
+ * 支持的功能：
+ * 1. HTTP/3头部过滤
+ * 2. HTTP/3主体过滤
+ * 3. HTTP/3尾部处理
+ *
+ * 支持的指令：
+ * 无特定指令，使用通用的HTTP模块指令。
+ *
+ * 支持的变量：
+ * 无特定变量，使用通用的HTTP模块变量。
+ *
+ * 使用注意点：
+ * 1. 本模块依赖于QUIC协议支持，确保Nginx编译时启用了QUIC和HTTP/3支持。
+ * 2. 需要正确配置SSL/TLS证书以支持HTTP/3。
+ * 3. 本模块主要用于内部处理，通常不需要直接配置。
+ * 4. 性能可能受到QUIC协议实现的影响，建议在生产环境中进行充分测试。
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

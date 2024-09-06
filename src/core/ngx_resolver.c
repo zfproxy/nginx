@@ -4,126 +4,234 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_resolver.c
+ *
+ * 这个文件包含了Nginx的DNS解析器的实现。
+ * 它处理DNS查询和响应，支持UDP和TCP协议。
+ *
+ * 主要功能包括:
+ * - DNS报文的解析和构造
+ * - 管理DNS查询和缓存
+ * - 处理超时和重试
+ * - 支持IPv4和IPv6地址解析
+ *
+ * 文件中定义了多个重要的数据结构和函数，用于实现DNS解析的各个方面。
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_event.h>
 
 
+/* DNS解析器UDP缓冲区大小 */
 #define NGX_RESOLVER_UDP_SIZE   4096
 
+/* DNS解析器TCP读缓冲区大小 */
 #define NGX_RESOLVER_TCP_RSIZE  (2 + 65535)
+/* DNS解析器TCP写缓冲区大小 */
 #define NGX_RESOLVER_TCP_WSIZE  8192
 
 
+/* DNS报文头部结构 */
 typedef struct {
-    u_char  ident_hi;
-    u_char  ident_lo;
-    u_char  flags_hi;
-    u_char  flags_lo;
-    u_char  nqs_hi;
-    u_char  nqs_lo;
-    u_char  nan_hi;
-    u_char  nan_lo;
-    u_char  nns_hi;
-    u_char  nns_lo;
-    u_char  nar_hi;
-    u_char  nar_lo;
+    u_char  ident_hi;   /* 标识符高8位 */
+    u_char  ident_lo;   /* 标识符低8位 */
+    u_char  flags_hi;   /* 标志位高8位 */
+    u_char  flags_lo;   /* 标志位低8位 */
+    u_char  nqs_hi;     /* 问题数高8位 */
+    u_char  nqs_lo;     /* 问题数低8位 */
+    u_char  nan_hi;     /* 回答数高8位 */
+    u_char  nan_lo;     /* 回答数低8位 */
+    u_char  nns_hi;     /* 授权记录数高8位 */
+    u_char  nns_lo;     /* 授权记录数低8位 */
+    u_char  nar_hi;     /* 附加记录数高8位 */
+    u_char  nar_lo;     /* 附加记录数低8位 */
 } ngx_resolver_hdr_t;
 
 
+/* DNS查询部分结构 */
 typedef struct {
-    u_char  type_hi;
-    u_char  type_lo;
-    u_char  class_hi;
-    u_char  class_lo;
+    u_char  type_hi;    /* 查询类型高8位 */
+    u_char  type_lo;    /* 查询类型低8位 */
+    u_char  class_hi;   /* 查询类高8位 */
+    u_char  class_lo;   /* 查询类低8位 */
 } ngx_resolver_qs_t;
 
 
+/* DNS应答部分结构 */
 typedef struct {
-    u_char  type_hi;
-    u_char  type_lo;
-    u_char  class_hi;
-    u_char  class_lo;
-    u_char  ttl[4];
-    u_char  len_hi;
-    u_char  len_lo;
+    u_char  type_hi;    /* 记录类型高8位 */
+    u_char  type_lo;    /* 记录类型低8位 */
+    u_char  class_hi;   /* 记录类高8位 */
+    u_char  class_lo;   /* 记录类低8位 */
+    u_char  ttl[4];     /* 生存时间 */
+    u_char  len_hi;     /* 数据长度高8位 */
+    u_char  len_lo;     /* 数据长度低8位 */
 } ngx_resolver_an_t;
 
 
+/* 从红黑树节点获取解析器节点的宏定义 */
 #define ngx_resolver_node(n)  ngx_rbtree_data(n, ngx_resolver_node_t, node)
 
 
+/* UDP连接函数声明 */
 static ngx_int_t ngx_udp_connect(ngx_resolver_connection_t *rec);
+/* TCP连接函数声明 */
 static ngx_int_t ngx_tcp_connect(ngx_resolver_connection_t *rec);
 
 
+/* 解析器清理函数声明 */
 static void ngx_resolver_cleanup(void *data);
+/* 解析器红黑树清理函数声明 */
 static void ngx_resolver_cleanup_tree(ngx_resolver_t *r, ngx_rbtree_t *tree);
+/* 带锁的域名解析函数声明 */
 static ngx_int_t ngx_resolve_name_locked(ngx_resolver_t *r,
     ngx_resolver_ctx_t *ctx, ngx_str_t *name);
+/* 处理解析器中过期的记录 */
 static void ngx_resolver_expire(ngx_resolver_t *r, ngx_rbtree_t *tree,
     ngx_queue_t *queue);
+
+/* 发送DNS查询 */
 static ngx_int_t ngx_resolver_send_query(ngx_resolver_t *r,
     ngx_resolver_node_t *rn);
+
+/* 通过UDP发送DNS查询 */
 static ngx_int_t ngx_resolver_send_udp_query(ngx_resolver_t *r,
     ngx_resolver_connection_t *rec, u_char *query, u_short qlen);
+
+/* 通过TCP发送DNS查询 */
 static ngx_int_t ngx_resolver_send_tcp_query(ngx_resolver_t *r,
     ngx_resolver_connection_t *rec, u_char *query, u_short qlen);
+
+/* 创建域名查询的DNS请求 */
 static ngx_int_t ngx_resolver_create_name_query(ngx_resolver_t *r,
     ngx_resolver_node_t *rn, ngx_str_t *name);
+/* 创建SRV记录查询的DNS请求 */
 static ngx_int_t ngx_resolver_create_srv_query(ngx_resolver_t *r,
     ngx_resolver_node_t *rn, ngx_str_t *name);
+
+/* 创建地址查询的DNS请求 */
 static ngx_int_t ngx_resolver_create_addr_query(ngx_resolver_t *r,
     ngx_resolver_node_t *rn, ngx_resolver_addr_t *addr);
+
+/* 重发DNS查询的事件处理函数 */
 static void ngx_resolver_resend_handler(ngx_event_t *ev);
+
+/* 重发DNS查询，并返回下一次重发的时间 */
 static time_t ngx_resolver_resend(ngx_resolver_t *r, ngx_rbtree_t *tree,
     ngx_queue_t *queue);
+/* 重发空DNS查询，返回重发的查询数量 */
 static ngx_uint_t ngx_resolver_resend_empty(ngx_resolver_t *r);
+
+/* 处理UDP读事件的回调函数 */
 static void ngx_resolver_udp_read(ngx_event_t *rev);
+
+/* 处理TCP写事件的回调函数 */
 static void ngx_resolver_tcp_write(ngx_event_t *wev);
+
+/* 处理TCP读事件的回调函数 */
 static void ngx_resolver_tcp_read(ngx_event_t *rev);
+
+/* 处理DNS响应的函数 */
 static void ngx_resolver_process_response(ngx_resolver_t *r, u_char *buf,
     size_t n, ngx_uint_t tcp);
+
+/* 处理A记录响应的函数 */
 static void ngx_resolver_process_a(ngx_resolver_t *r, u_char *buf, size_t n,
     ngx_uint_t ident, ngx_uint_t code, ngx_uint_t qtype,
     ngx_uint_t nan, ngx_uint_t trunc, ngx_uint_t ans);
+
+/* 处理SRV记录响应的函数 */
 static void ngx_resolver_process_srv(ngx_resolver_t *r, u_char *buf, size_t n,
     ngx_uint_t ident, ngx_uint_t code, ngx_uint_t nan,
     ngx_uint_t trunc, ngx_uint_t ans);
+
+/* 处理PTR记录响应的函数 */
 static void ngx_resolver_process_ptr(ngx_resolver_t *r, u_char *buf, size_t n,
     ngx_uint_t ident, ngx_uint_t code, ngx_uint_t nan);
+
+/* 在解析器中查找域名节点 */
 static ngx_resolver_node_t *ngx_resolver_lookup_name(ngx_resolver_t *r,
     ngx_str_t *name, uint32_t hash);
+
+/* 在解析器中查找SRV记录节点 */
 static ngx_resolver_node_t *ngx_resolver_lookup_srv(ngx_resolver_t *r,
     ngx_str_t *name, uint32_t hash);
+
+/* 在解析器中查找地址节点 */
 static ngx_resolver_node_t *ngx_resolver_lookup_addr(ngx_resolver_t *r,
     in_addr_t addr);
+
+/* 红黑树插入值的函数 */
 static void ngx_resolver_rbtree_insert_value(ngx_rbtree_node_t *temp,
     ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
+
+/* 复制解析器中的名称 */
 static ngx_int_t ngx_resolver_copy(ngx_resolver_t *r, ngx_str_t *name,
     u_char *buf, u_char *src, u_char *last);
+
+/* 设置解析器超时 */
 static ngx_int_t ngx_resolver_set_timeout(ngx_resolver_t *r,
     ngx_resolver_ctx_t *ctx);
+/* 处理解析器超时事件的函数 */
 static void ngx_resolver_timeout_handler(ngx_event_t *ev);
+
+/* 释放解析器节点的函数 */
 static void ngx_resolver_free_node(ngx_resolver_t *r, ngx_resolver_node_t *rn);
+
+/* 为解析器分配内存的函数 */
 static void *ngx_resolver_alloc(ngx_resolver_t *r, size_t size);
+
+/* 为解析器分配并初始化内存的函数 */
 static void *ngx_resolver_calloc(ngx_resolver_t *r, size_t size);
+
+/* 释放解析器内存的函数 */
 static void ngx_resolver_free(ngx_resolver_t *r, void *p);
+
+/* 在锁定状态下释放解析器内存的函数 */
 static void ngx_resolver_free_locked(ngx_resolver_t *r, void *p);
+
+/* 复制解析器内存的函数 */
 static void *ngx_resolver_dup(ngx_resolver_t *r, void *src, size_t size);
+
+/* 导出解析器地址信息的函数 */
 static ngx_resolver_addr_t *ngx_resolver_export(ngx_resolver_t *r,
     ngx_resolver_node_t *rn, ngx_uint_t rotate);
+
+/* 报告SRV记录解析结果的函数 */
 static void ngx_resolver_report_srv(ngx_resolver_t *r, ngx_resolver_ctx_t *ctx);
+
+/* 记录解析器错误日志的函数 */
 static u_char *ngx_resolver_log_error(ngx_log_t *log, u_char *buf, size_t len);
+
+/* 解析SRV记录中的域名的函数 */
 static void ngx_resolver_resolve_srv_names(ngx_resolver_ctx_t *ctx,
     ngx_resolver_node_t *rn);
+
+/* 处理SRV记录域名解析结果的函数 */
 static void ngx_resolver_srv_names_handler(ngx_resolver_ctx_t *ctx);
+
+/* 比较SRV记录的函数，用于排序 */
 static ngx_int_t ngx_resolver_cmp_srvs(const void *one, const void *two);
 
 #if (NGX_HAVE_INET6)
+/* 
+ * 插入IPv6地址节点到红黑树的函数
+ * @param temp 临时节点
+ * @param node 要插入的节点
+ * @param sentinel 哨兵节点
+ */
 static void ngx_resolver_rbtree_insert_addr6_value(ngx_rbtree_node_t *temp,
     ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
+
+/*
+ * 在解析器中查找IPv6地址节点的函数
+ * @param r 解析器对象
+ * @param addr IPv6地址
+ * @param hash 地址的哈希值
+ * @return 找到的节点，如果未找到则返回NULL
+ */
 static ngx_resolver_node_t *ngx_resolver_lookup_addr6(ngx_resolver_t *r,
     struct in6_addr *addr, uint32_t hash);
 #endif

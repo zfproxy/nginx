@@ -4,12 +4,39 @@
  * Copyright (C) Valentin V. Bartenev
  */
 
+/*
+ * ngx_http_huff_decode.c
+ *
+ * 该文件实现了HTTP/2中使用的Huffman编码的解码功能。
+ *
+ * 支持的功能:
+ * 1. Huffman编码的位级解码
+ * 2. 完整的Huffman编码字符串解码
+ * 3. 解码过程中的错误检测
+ * 4. 支持不完整Huffman编码的处理
+ * 5. 高效的查表解码算法
+ *
+ * 使用注意点:
+ * 1. 确保输入的Huffman编码数据是有效的，无效数据可能导致解码错误
+ * 2. 注意处理解码过程中可能出现的内存分配失败情况
+ * 3. 在高并发环境下使用时，需考虑线程安全性
+ * 4. 解码大量数据时，注意监控CPU使用率，因为解码过程可能较为密集
+ * 5. 定期检查和更新Huffman编码表，以适应HTTP/2协议的可能变化
+ * 6. 在错误处理中，应该有合适的日志记录机制，以便于问题诊断
+ * 7. 考虑使用缓存机制来优化频繁解码的场景
+ * 8. 在嵌入式或资源受限的环境中使用时，需注意内存使用情况
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/*
+ * 定义用于Huffman解码的结构体
+ * 该结构体包含了解码过程中需要的各种信息
+ */
 typedef struct {
     u_char  next;
     u_char  emit;
@@ -18,10 +45,26 @@ typedef struct {
 } ngx_http_huff_decode_code_t;
 
 
+/*
+ * 内联函数：解码Huffman编码的位
+ * 
+ * @param state  指向当前解码状态的指针
+ * @param ending 指向结束标志的指针
+ * @param bits   要解码的位
+ * @param dst    指向目标缓冲区的指针的指针
+ *
+ * @return ngx_int_t 解码结果，成功返回NGX_OK，失败返回NGX_ERROR
+ */
 static ngx_inline ngx_int_t ngx_http_huff_decode_bits(u_char *state,
     u_char *ending, ngx_uint_t bits, u_char **dst);
 
 
+/*
+ * 定义Huffman解码表
+ * 这是一个256x16的二维数组，用于存储Huffman编码的解码信息
+ * 每个元素是ngx_http_huff_decode_code_t结构体，包含了解码所需的信息
+ * 256表示可能的输入字节数，16表示每个字节可能的位模式数
+ */
 static ngx_http_huff_decode_code_t  ngx_http_huff_decode_codes[256][16] =
 {
     /* 0 */

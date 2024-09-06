@@ -4,6 +4,42 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail.c
+ *
+ * 该文件实现了Nginx邮件代理服务器的核心功能。
+ *
+ * 支持的功能:
+ * - POP3、IMAP和SMTP协议代理
+ * - SSL/TLS加密
+ * - 邮件认证
+ * - 邮件转发
+ * - 负载均衡
+ *
+ * 支持的指令:
+ * - mail: 定义邮件服务器配置块
+ * - server: 定义邮件虚拟服务器
+ * - listen: 设置监听的IP地址和端口
+ * - protocol: 指定使用的邮件协议
+ * - proxy_pass: 设置上游邮件服务器
+ * - auth_http: 配置HTTP认证服务器
+ *
+ * 相关变量:
+ * - $mail_protocol: 当前使用的邮件协议
+ * - $mail_client_address: 客户端IP地址
+ * - $mail_client_port: 客户端端口
+ * - $mail_session_id: 会话ID
+ *
+ * 使用注意点:
+ * 1. 正确配置SSL/TLS证书以确保安全连接
+ * 2. 合理设置超时时间和缓冲区大小
+ * 3. 注意邮件协议的兼容性问题
+ * 4. 配置适当的访问控制和认证方式
+ * 5. 监控邮件服务器的性能和资源使用情况
+ * 6. 定期更新和维护上游邮件服务器列表
+ * 7. 注意与其他模块的配合使用，如realip模块
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

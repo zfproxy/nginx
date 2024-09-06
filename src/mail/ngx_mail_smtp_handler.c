@@ -4,6 +4,35 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_smtp_handler.c
+ *
+ * 本文件实现了NGINX的SMTP邮件处理模块。
+ *
+ * 支持的功能:
+ * - SMTP协议处理
+ * - 身份验证
+ * - TLS加密
+ * - 邮件转发
+ *
+ * 支持的指令:
+ * - smtp_auth: 设置SMTP身份验证方法
+ * - smtp_capabilities: 设置SMTP服务器能力
+ * - smtp_client_buffer: 设置客户端缓冲区大小
+ * - smtp_greeting_delay: 设置SMTP问候延迟时间
+ *
+ * 相关变量:
+ * - $smtp_client_ip: 客户端IP地址
+ * - $smtp_helo: HELO/EHLO命令中的域名
+ * - $smtp_auth_method: 使用的身份验证方法
+ *
+ * 使用注意点:
+ * 1. 确保正确配置SSL/TLS证书以支持加密连接
+ * 2. 合理设置身份验证方法，避免安全风险
+ * 3. 注意调整缓冲区大小以优化性能
+ * 4. 监控日志以及时发现潜在问题
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

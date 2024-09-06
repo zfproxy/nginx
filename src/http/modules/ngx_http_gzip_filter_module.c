@@ -4,6 +4,68 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_gzip_filter_module.c
+ *
+ * 该模块实现了HTTP响应的gzip压缩功能。
+ *
+ * 支持的功能:
+ * - 对HTTP响应进行gzip压缩
+ * - 可配置压缩级别
+ * - 可配置最小压缩长度
+ * - 可配置压缩类型
+ * - 支持分块传输编码
+ * - 支持缓冲和非缓冲模式
+ *
+ * 支持的指令:
+ * - gzip: 启用或禁用gzip压缩
+ *   语法: gzip on | off;
+ *   默认值: off
+ *   上下文: http, server, location, if in location
+ *
+ * - gzip_types: 指定要压缩的MIME类型
+ *   语法: gzip_types mime-type ...;
+ *   默认值: text/html
+ *   上下文: http, server, location
+ *
+ * - gzip_comp_level: 设置gzip压缩级别
+ *   语法: gzip_comp_level level;
+ *   默认值: 1
+ *   上下文: http, server, location
+ *
+ * - gzip_buffers: 设置用于压缩响应的缓冲区数量和大小
+ *   语法: gzip_buffers number size;
+ *   默认值: 32 4k|16 8k
+ *   上下文: http, server, location
+ *
+ * - gzip_min_length: 设置需要压缩的响应的最小长度
+ *   语法: gzip_min_length length;
+ *   默认值: 20
+ *   上下文: http, server, location
+ *
+ * - gzip_http_version: 设置压缩响应所需的最低HTTP版本
+ *   语法: gzip_http_version 1.0 | 1.1;
+ *   默认值: 1.1
+ *   上下文: http, server, location
+ *
+ * - gzip_proxied: 为代理请求的响应启用gzip压缩
+ *   语法: gzip_proxied off | expired | no-cache | no-store | private | no_last_modified | no_etag | auth | any ...;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * - gzip_vary: 插入"Vary: Accept-Encoding"响应头
+ *   语法: gzip_vary on | off;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * - gzip_disable: 禁用某些浏览器的gzip压缩
+ *   语法: gzip_disable regex ...;
+ *   默认值: -
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * 该模块不提供任何变量。
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

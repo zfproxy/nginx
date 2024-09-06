@@ -4,6 +4,15 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * 这个文件实现了 Nginx 流模块的脚本功能。
+ * 主要包含以下内容:
+ * 1. 脚本编译和执行的相关函数
+ * 2. 变量处理
+ * 3. 复杂值的计算
+ * 4. 正则表达式捕获
+ * 5. 完整名称的处理
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

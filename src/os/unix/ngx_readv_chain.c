@@ -4,6 +4,29 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_readv_chain.c
+ *
+ * 该文件实现了Nginx的readv链式读取功能。
+ *
+ * 支持的功能:
+ * 1. 使用readv系统调用进行高效的分散读取
+ * 2. 支持链式缓冲区结构
+ * 3. 处理读取限制(limit)
+ * 4. 兼容不同事件模型(如kqueue)
+ * 5. 错误处理和日志记录
+ * 6. 支持非阻塞I/O
+ *
+ * 使用注意点:
+ * 1. 调用前需确保连接(ngx_connection_t)已正确初始化
+ * 2. 链式缓冲区(ngx_chain_t)应正确设置，避免内存访问错误
+ * 3. limit参数用于控制最大读取量，防止缓冲区溢出
+ * 4. 在非阻塞模式下，可能返回NGX_AGAIN，调用者需正确处理
+ * 5. 对于kqueue等特殊事件模型，需注意其特有的行为(如EOF处理)
+ * 6. 大量小缓冲区可能导致系统调用次数增加，影响性能
+ * 7. 错误处理应考虑不同的错误类型，如EAGAIN、EINTR等
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

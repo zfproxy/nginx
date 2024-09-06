@@ -4,6 +4,32 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_imap_handler.c
+ *
+ * IMAP协议处理模块
+ *
+ * 支持的功能:
+ * - IMAP4登录认证
+ * - STARTTLS加密
+ * - 能力查询
+ *
+ * 支持的指令:
+ * - LOGIN: 用户名密码登录
+ * - AUTHENTICATE: 认证
+ * - CAPABILITY: 查询服务器能力
+ * - STARTTLS: 启动TLS加密
+ *
+ * 相关变量:
+ * - ngx_mail_session_t: 邮件会话结构
+ * - ngx_connection_t: 连接结构
+ *
+ * 使用注意:
+ * 1. 需要正确配置SSL证书才能使用STARTTLS
+ * 2. 认证方法需要在nginx配置文件中指定
+ * 3. 超时时间可通过timeout指令设置
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

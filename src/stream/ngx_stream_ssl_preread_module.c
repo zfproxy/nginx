@@ -3,6 +3,33 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * Copyright (C) Nginx, Inc.
+ * 本模块提供SSL预读功能，用于在SSL握手之前获取客户端请求的相关信息。
+ *
+ * 支持的功能：
+ * 1. 获取SSL/TLS协议版本
+ * 2. 获取SNI (Server Name Indication) 信息
+ * 3. 获取ALPN (Application-Layer Protocol Negotiation) 协议列表
+ *
+ * 支持的指令：
+ * - ssl_preread: 启用或禁用SSL预读功能
+ *   语法：ssl_preread on|off;
+ *   默认值：ssl_preread off;
+ *   上下文：stream, server
+ *
+ * 支持的变量：
+ * - $ssl_preread_protocol: SSL/TLS协议版本
+ * - $ssl_preread_server_name: SNI中请求的服务器名称
+ * - $ssl_preread_alpn_protocols: ALPN协议列表
+ *
+ * 使用注意点：
+ * 1. 本模块需要在stream上下文中使用
+ * 2. 启用ssl_preread后，不能同时使用ssl_handshake指令
+ * 3. 该模块仅用于预读SSL信息，不会解密SSL流量
+ * 4. 在使用该模块时，需要确保有足够的缓冲区来存储SSL握手信息
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

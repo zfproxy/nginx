@@ -5,6 +5,52 @@
  * Copyright (C) Manlio Perillo (manlio.perillo@gmail.com)
  */
 
+/*
+ * ngx_http_scgi_module.c
+ *
+ * 该模块实现了SCGI协议的支持，允许Nginx作为反向代理将请求转发给SCGI应用服务器。
+ *
+ * 主要功能:
+ * - 将HTTP请求转换为SCGI请求
+ * - 支持上游服务器的负载均衡
+ * - 支持FastCGI参数传递
+ * - 支持请求和响应的缓存
+ *
+ * 支持的指令:
+ * - scgi_pass: 设置SCGI服务器的地址
+ *   语法: scgi_pass address;
+ *   上下文: location, if in location
+ *
+ * - scgi_param: 设置传递给SCGI服务器的参数
+ *   语法: scgi_param parameter value [if_not_empty];
+ *   上下文: http, server, location
+ *
+ * - scgi_bind: 指定用于连接SCGI服务器的本地IP地址
+ *   语法: scgi_bind address [transparent] | off;
+ *   上下文: http, server, location
+ *
+ * - scgi_connect_timeout: 设置与SCGI服务器建立连接的超时时间
+ *   语法: scgi_connect_timeout time;
+ *   默认值: 60s
+ *   上下文: http, server, location
+ *
+ * - scgi_cache: 定义用于缓存的共享内存区域
+ *   语法: scgi_cache zone | off;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * 提供的变量:
+ * - $scgi_content_length: SCGI请求的内容长度
+ * - $scgi_param_name: 任意SCGI参数的值
+ *
+ * 使用注意点:
+ * 1. 配置SCGI服务器地址时需要确保地址正确且服务器可访问
+ * 2. 合理设置超时时间和缓冲区大小，以优化性能
+ * 3. 使用scgi_param指令时注意参数名的大小写
+ * 4. 启用缓存时需要合理配置缓存策略，避免缓存敏感数据
+ * 5. 在生产环境中建议启用HTTPS来保护SCGI通信
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

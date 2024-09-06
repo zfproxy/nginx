@@ -4,16 +4,55 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_file.c - Nginx文件操作相关功能
+ *
+ * 本文件包含Nginx核心模块中与文件操作相关的函数和数据结构。
+ *
+ * 主要功能:
+ * 1. 文件路径处理（获取完整路径名）
+ * 2. 临时文件名生成
+ * 3. 文件I/O操作（打开、读取、写入、关闭等）
+ * 4. 目录操作（创建、删除、遍历等）
+ * 5. 文件属性获取和设置
+ * 6. 文件锁定机制
+ *
+ * 使用注意:
+ * - 所有文件操作函数都应该在ngx_pool_t内存池的上下文中使用
+ * - 文件路径应该使用ngx_str_t类型表示
+ * - 临时文件名生成使用原子操作，确保线程安全
+ * - 在进行文件I/O操作时，应注意错误处理和资源释放
+ * - 在跨平台开发时，需要注意Windows和Unix系统的文件路径差异
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 
 
+/**
+ * @brief 测试文件名是否为完整路径
+ * @param name 要测试的文件名
+ * @return NGX_OK 如果是完整路径，否则返回其他值
+ */
 static ngx_int_t ngx_test_full_name(ngx_str_t *name);
 
 
+/**
+ * @brief 用于生成临时文件名的原子计数器
+ */
 static ngx_atomic_t   temp_number = 0;
+
+/**
+ * @brief 指向临时文件名计数器的指针
+ * 这个指针允许其他模块访问和修改temp_number
+ */
 ngx_atomic_t         *ngx_temp_number = &temp_number;
+
+/**
+ * @brief 用于生成随机数的原子整数
+ * 初始值设置为123456，可以在运行时被修改以提供更好的随机性
+ */
 ngx_atomic_int_t      ngx_random_number = 123456;
 
 
@@ -656,6 +695,13 @@ ngx_create_paths(ngx_cycle_t *cycle, ngx_uid_t user)
 }
 
 
+/**
+ * @brief 扩展的文件重命名函数
+ * @param src 源文件路径
+ * @param to 目标文件路径
+ * @param ext 扩展参数
+ * @return NGX_OK 成功，NGX_ERROR 失败
+ */
 ngx_int_t
 ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
 {
@@ -665,6 +711,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
 
 #if !(NGX_WIN32)
 
+    // 修改文件访问权限
     if (ext->access) {
         if (ngx_change_file_access(src->data, ext->access) == NGX_FILE_ERROR) {
             ngx_log_error(NGX_LOG_CRIT, ext->log, ngx_errno,
@@ -676,6 +723,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
 
 #endif
 
+    // 设置文件时间
     if (ext->time != -1) {
         if (ngx_set_file_time(src->data, ext->fd, ext->time) != NGX_OK) {
             ngx_log_error(NGX_LOG_CRIT, ext->log, ngx_errno,
@@ -685,18 +733,21 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
         }
     }
 
+    // 尝试重命名文件
     if (ngx_rename_file(src->data, to->data) != NGX_FILE_ERROR) {
         return NGX_OK;
     }
 
     err = ngx_errno;
 
+    // 处理目标路径不存在的情况
     if (err == NGX_ENOPATH) {
 
         if (!ext->create_path) {
             goto failed;
         }
 
+        // 创建目标路径
         err = ngx_create_full_path(to->data, ngx_dir_access(ext->path_access));
 
         if (err) {
@@ -706,6 +757,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
             goto failed;
         }
 
+        // 再次尝试重命名
         if (ngx_rename_file(src->data, to->data) != NGX_FILE_ERROR) {
             return NGX_OK;
         }
@@ -715,6 +767,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
 
 #if (NGX_WIN32)
 
+    // Windows 平台特殊处理
     if (err == NGX_EEXIST || err == NGX_EEXIST_FILE) {
         err = ngx_win32_rename_file(src, to, ext->log);
 
@@ -725,14 +778,17 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
 
 #endif
 
+    // 处理跨设备移动文件的情况
     if (err == NGX_EXDEV) {
 
+        // 设置复制文件的参数
         cf.size = -1;
         cf.buf_size = 0;
         cf.access = ext->access;
         cf.time = ext->time;
         cf.log = ext->log;
 
+        // 生成临时文件名
         name = ngx_alloc(to->len + 1 + 10 + 1, ext->log);
         if (name == NULL) {
             return NGX_ERROR;
@@ -741,11 +797,14 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
         (void) ngx_sprintf(name, "%*s.%010uD%Z", to->len, to->data,
                            (uint32_t) ngx_next_temp_number(0));
 
+        // 复制文件到临时文件
         if (ngx_copy_file(src->data, name, &cf) == NGX_OK) {
 
+            // 重命名临时文件到目标文件
             if (ngx_rename_file(name, to->data) != NGX_FILE_ERROR) {
                 ngx_free(name);
 
+                // 删除源文件
                 if (ngx_delete_file(src->data) == NGX_FILE_ERROR) {
                     ngx_log_error(NGX_LOG_CRIT, ext->log, ngx_errno,
                                   ngx_delete_file_n " \"%s\" failed",
@@ -760,6 +819,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
                           ngx_rename_file_n " \"%s\" to \"%s\" failed",
                           name, to->data);
 
+            // 删除临时文件
             if (ngx_delete_file(name) == NGX_FILE_ERROR) {
                 ngx_log_error(NGX_LOG_CRIT, ext->log, ngx_errno,
                               ngx_delete_file_n " \"%s\" failed", name);
@@ -774,6 +834,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
 
 failed:
 
+    // 如果设置了删除源文件标志，则删除源文件
     if (ext->delete_file) {
         if (ngx_delete_file(src->data) == NGX_FILE_ERROR) {
             ngx_log_error(NGX_LOG_CRIT, ext->log, ngx_errno,
@@ -781,6 +842,7 @@ failed:
         }
     }
 
+    // 记录错误日志
     if (err) {
         ngx_log_error(NGX_LOG_CRIT, ext->log, err,
                       ngx_rename_file_n " \"%s\" to \"%s\" failed",

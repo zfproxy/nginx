@@ -5,6 +5,39 @@
  */
 
 
+/*
+ * ngx_http_range_filter_module.c
+ *
+ * 该模块实现了HTTP范围请求(Range Requests)的处理功能。
+ *
+ * 支持的功能:
+ * - 处理单一范围和多重范围请求
+ * - 生成部分内容响应(206 Partial Content)
+ * - 支持字节范围请求
+ * - 生成multipart/byteranges响应
+ * - 处理If-Range头部
+ *
+ * 支持的指令:
+ * - max_ranges: 设置单个请求中允许的最大范围数
+ *   语法: max_ranges number;
+ *   默认值: max_ranges unlimited;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * - $content_range: 当前响应的Content-Range头部值
+ *
+ * 使用注意点:
+ * 1. 确保正确配置文件的mime.types,以便模块能够正确识别内容类型
+ * 2. 对大文件的范围请求可能会影响服务器性能,建议合理使用max_ranges指令
+ * 3. 启用gzip压缩时,范围请求可能无法正常工作
+ * 4. 对于动态生成的内容,范围请求可能无效
+ * 5. 确保上游服务器支持范围请求,如果使用反向代理
+ * 6. 注意处理畸形或重叠的范围请求
+ * 7. 考虑使用缓存来优化频繁的范围请求
+ * 8. 监控日志中的206状态码,以评估范围请求的使用情况
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>

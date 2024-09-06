@@ -3,6 +3,38 @@
  * Copyright (C) Maxim Dounin
  * Copyright (C) Nginx, Inc.
  */
+/*
+ * ngx_http_auth_request_module.c
+ *
+ * 该模块实现了基于子请求的外部认证功能。
+ *
+ * 支持的功能:
+ * 1. 发送子请求到指定URI进行认证
+ * 2. 根据子请求的响应决定是否允许访问
+ * 3. 支持将认证子请求的响应头传递给主请求
+ * 4. 可配置认证失败时的错误响应
+ *
+ * 支持的指令:
+ * - auth_request: 指定用于认证的URI
+ *   语法: auth_request uri | off;
+ *   默认值: auth_request off;
+ *   上下文: http, server, location
+ *
+ * - auth_request_set: 设置变量为认证请求的响应头
+ *   语法: auth_request_set $variable $upstream_http_name;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * 该模块不直接提供变量，但可以通过auth_request_set指令设置变量。
+ *
+ * 使用注意点:
+ * 1. 认证子请求会增加服务器负载，应谨慎使用
+ * 2. 确保认证URI能够正确响应，避免认证失败导致无法访问
+ * 3. 认证子请求的超时设置会影响主请求的响应时间
+ * 4. 注意保护认证URI，防止未经授权的访问
+ * 5. 可以结合其他模块（如access模块）实现更复杂的访问控制
+ */
+
 
 
 #include <ngx_config.h>
@@ -10,39 +42,146 @@
 #include <ngx_http.h>
 
 
+/**
+ * @brief HTTP认证请求模块的配置结构
+ *
+ * 该结构用于存储HTTP认证请求模块的配置信息。
+ */
 typedef struct {
-    ngx_str_t                 uri;
-    ngx_array_t              *vars;
+    ngx_str_t                 uri;    /**< 认证请求的URI */
+    ngx_array_t              *vars;   /**< 存储认证变量的数组 */
 } ngx_http_auth_request_conf_t;
 
 
+/**
+ * @brief HTTP认证请求模块的上下文结构
+ *
+ * 该结构用于存储HTTP认证请求模块的上下文信息。
+ */
 typedef struct {
-    ngx_uint_t                done;
-    ngx_uint_t                status;
-    ngx_http_request_t       *subrequest;
+    ngx_uint_t                done;       /**< 标记认证是否完成 */
+    ngx_uint_t                status;     /**< 认证请求的状态码 */
+    ngx_http_request_t       *subrequest; /**< 指向子请求的指针 */
 } ngx_http_auth_request_ctx_t;
 
 
+/**
+ * @brief HTTP认证请求变量结构
+ *
+ * 该结构用于定义和处理HTTP认证请求中的变量。
+ */
 typedef struct {
-    ngx_int_t                 index;
-    ngx_http_complex_value_t  value;
-    ngx_http_set_variable_pt  set_handler;
+    ngx_int_t                 index;        /**< 变量索引 */
+    ngx_http_complex_value_t  value;        /**< 变量值 */
+    ngx_http_set_variable_pt  set_handler;  /**< 变量设置处理函数 */
 } ngx_http_auth_request_variable_t;
 
 
+/**
+ * @brief 处理认证请求的主要函数
+ *
+ * 该函数负责处理传入的HTTP请求，执行认证逻辑。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @return NGX_DECLINED 如果认证通过，NGX_ERROR 如果出现错误，或其他适当的状态码
+ */
 static ngx_int_t ngx_http_auth_request_handler(ngx_http_request_t *r);
+
+/**
+ * @brief 认证子请求完成后的回调函数
+ *
+ * 处理认证子请求完成后的结果，设置相应的状态和变量。
+ *
+ * @param r 指向主HTTP请求的指针
+ * @param data 用户定义的数据（通常是上下文）
+ * @param rc 子请求的返回代码
+ * @return NGX_OK 如果处理成功，否则返回错误代码
+ */
 static ngx_int_t ngx_http_auth_request_done(ngx_http_request_t *r,
     void *data, ngx_int_t rc);
+
+/**
+ * @brief 设置认证请求相关的变量
+ *
+ * 根据认证结果设置配置中定义的变量。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @param arcf 指向认证请求配置的指针
+ * @param ctx 指向认证请求上下文的指针
+ * @return NGX_OK 如果设置成功，否则返回错误代码
+ */
 static ngx_int_t ngx_http_auth_request_set_variables(ngx_http_request_t *r,
     ngx_http_auth_request_conf_t *arcf, ngx_http_auth_request_ctx_t *ctx);
+
+/**
+ * @brief 处理认证请求中的变量
+ *
+ * 获取或设置认证请求中使用的变量的值。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @param v 指向变量值的指针
+ * @param data 变量相关的数据
+ * @return NGX_OK 如果处理成功，否则返回错误代码
+ */
 static ngx_int_t ngx_http_auth_request_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+
+/**
+ * @brief 创建认证请求模块的配置结构
+ *
+ * 为每个位置块创建一个新的配置结构。
+ *
+ * @param cf 指向Nginx配置的指针
+ * @return 指向新创建的配置结构的指针，如果失败则返回NULL
+ */
 static void *ngx_http_auth_request_create_conf(ngx_conf_t *cf);
+
+/**
+ * @brief 合并认证请求模块的配置
+ *
+ * 合并父配置和子配置，确保所有必要的值都被正确设置。
+ *
+ * @param cf 指向Nginx配置的指针
+ * @param parent 指向父配置的指针
+ * @param child 指向子配置的指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误字符串
+ */
 static char *ngx_http_auth_request_merge_conf(ngx_conf_t *cf,
     void *parent, void *child);
+
+/**
+ * @brief 初始化认证请求模块
+ *
+ * 在配置阶段完成后进行模块的初始化工作。
+ *
+ * @param cf 指向Nginx配置的指针
+ * @return NGX_OK 如果初始化成功，否则返回NGX_ERROR
+ */
 static ngx_int_t ngx_http_auth_request_init(ngx_conf_t *cf);
+
+/**
+ * @brief 处理auth_request指令
+ *
+ * 解析和设置auth_request指令的配置。
+ *
+ * @param cf 指向Nginx配置的指针
+ * @param cmd 指向当前命令的指针
+ * @param conf 指向模块配置的指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误字符串
+ */
 static char *ngx_http_auth_request(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/**
+ * @brief 处理auth_request_set指令
+ *
+ * 解析和设置auth_request_set指令的配置。
+ *
+ * @param cf 指向Nginx配置的指针
+ * @param cmd 指向当前命令的指针
+ * @param conf 指向模块配置的指针
+ * @return 成功时返回NGX_CONF_OK，失败时返回错误字符串
+ */
 static char *ngx_http_auth_request_set(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 

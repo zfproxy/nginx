@@ -6,17 +6,55 @@
  */
 
 
+/*
+ * ngx_http_huff_encode.c
+ *
+ * 该文件实现了HTTP/2中使用的Huffman编码功能。
+ *
+ * 支持的功能:
+ * 1. 将ASCII字符编码为Huffman编码
+ * 2. 支持完整的256字符ASCII集的Huffman编码
+ * 3. 提供高效的查表编码方法
+ * 4. 支持位级别的编码操作
+ * 5. 可以处理任意长度的输入字符串
+ * 6. 提供编码后的长度计算功能
+ *
+ * 使用注意点:
+ * 1. 确保输入的字符串是有效的ASCII字符
+ * 2. 注意处理编码过程中可能出现的内存分配失败情况
+ * 3. 在高并发环境下使用时，需考虑线程安全性
+ * 4. 编码大量数据时，注意监控CPU使用率，因为编码过程可能较为密集
+ * 5. 定期检查和更新Huffman编码表，以适应HTTP/2协议的可能变化
+ * 6. 在错误处理中，应该有合适的日志记录机制，以便于问题诊断
+ * 7. 考虑使用缓存机制来优化频繁编码的场景
+ * 8. 在嵌入式或资源受限的环境中使用时，需注意内存使用情况
+ */
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/*
+ * 定义一个结构体用于存储Huffman编码
+ * 这个结构体将在ngx_http_huff_encode_table中使用
+ * 用于表示每个ASCII字符的Huffman编码
+ */
 typedef struct {
     uint32_t  code;
     uint32_t  len;
 } ngx_http_huff_encode_code_t;
 
 
+/*
+ * 定义Huffman编码表
+ * 这个表包含256个条目，对应ASCII字符集中的每个字符
+ * 每个条目包含两个部分:
+ * 1. code: 32位无符号整数，表示Huffman编码
+ * 2. len: 32位无符号整数，表示编码的位长度
+ * 这个表用于HTTP/2头部压缩中的Huffman编码
+ */
 static ngx_http_huff_encode_code_t  ngx_http_huff_encode_table[256] =
 {
     {0x00001ff8, 13}, {0x007fffd8, 23}, {0x0fffffe2, 28}, {0x0fffffe3, 28},
@@ -87,6 +125,12 @@ static ngx_http_huff_encode_code_t  ngx_http_huff_encode_table[256] =
 
 
 /* same as above, but embeds lowercase transformation */
+/* 
+ * 定义一个静态数组 ngx_http_huff_encode_table_lc，用于存储 HTTP/2 Huffman 编码表
+ * 这个表与上面的表相同，但嵌入了小写转换
+ * 数组大小为 256，对应 ASCII 字符集的所有可能值
+ * 每个元素都是 ngx_http_huff_encode_code_t 类型，包含 Huffman 编码和其位长
+ */
 static ngx_http_huff_encode_code_t  ngx_http_huff_encode_table_lc[256] =
 {
     {0x00001ff8, 13}, {0x007fffd8, 23}, {0x0fffffe2, 28}, {0x0fffffe3, 28},
@@ -161,9 +205,15 @@ static ngx_http_huff_encode_code_t  ngx_http_huff_encode_table_lc[256] =
 #if (NGX_HAVE_LITTLE_ENDIAN)
 
 #if (NGX_HAVE_GCC_BSWAP64)
+/* 定义一个宏函数，用于将Huffman编码的缓冲区写入目标地址 */
+/* dst: 目标地址指针 */
+/* buf: 包含Huffman编码的缓冲区 */
 #define ngx_http_huff_encode_buf(dst, buf)                                    \
     (*(uint64_t *) (dst) = __builtin_bswap64(buf))
 #else
+/* 定义一个宏函数，用于将Huffman编码的缓冲区写入目标地址 */
+/* dst: 目标地址指针 */
+/* buf: 包含Huffman编码的缓冲区 */
 #define ngx_http_huff_encode_buf(dst, buf)                                    \
     ((dst)[0] = (u_char) ((buf) >> 56),                                       \
      (dst)[1] = (u_char) ((buf) >> 48),                                       \
@@ -176,12 +226,20 @@ static ngx_http_huff_encode_code_t  ngx_http_huff_encode_table_lc[256] =
 #endif
 
 #else /* !NGX_HAVE_LITTLE_ENDIAN */
+/* 定义一个宏函数，用于将Huffman编码的缓冲区写入目标地址 */
+/* dst: 目标地址指针 */
+/* buf: 包含Huffman编码的缓冲区 */
+/* 在大端字节序系统上，直接将buf写入dst */
 #define ngx_http_huff_encode_buf(dst, buf)                                    \
     (*(uint64_t *) (dst) = (buf))
 #endif
 
 #else /* NGX_PTR_SIZE == 4 */
 
+/* 定义一个宏函数，用于将Huffman编码的缓冲区写入目标地址 */
+/* dst: 目标地址指针 */
+/* buf: 包含Huffman编码的缓冲区 */
+/* 在32位系统上，使用htonl函数将buf转换为网络字节序后写入dst */
 #define ngx_http_huff_encode_buf(dst, buf)                                    \
     (*(uint32_t *) (dst) = htonl(buf))
 

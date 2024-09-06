@@ -4,6 +4,36 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_variables.c
+ *
+ * 该文件实现了Nginx的HTTP变量处理功能。
+ *
+ * 支持的功能:
+ * 1. 定义和管理HTTP变量
+ * 2. 变量值的获取和设置
+ * 3. 内置变量的实现（如$http_host, $request_uri等）
+ * 4. 自定义变量的支持
+ * 5. 变量缓存机制
+ * 6. 复杂变量的处理（如正则捕获组）
+ * 7. 请求头和响应头相关变量
+ * 8. Cookie变量的处理
+ * 9. 请求体和响应体相关变量
+ * 10. SSL/TLS相关变量
+ *
+ * 使用注意点:
+ * 1. 变量名大小写敏感，使用时需注意
+ * 2. 某些变量可能在请求的不同阶段有不同的值，使用时需考虑上下文
+ * 3. 自定义变量时要注意命名冲突
+ * 4. 频繁访问的变量应考虑使用缓存机制
+ * 5. 在处理大量变量时要注意内存使用
+ * 6. 某些变量可能影响性能，应谨慎使用（如正则匹配的变量）
+ * 7. 在使用未知的请求头或响应头变量时，要注意可能的安全风险
+ * 8. 在多阶段指令中使用变量时，要考虑变量的可用性
+ * 9. 使用SSL/TLS相关变量时，确保SSL已正确配置
+ * 10. 在处理Cookie变量时，注意可能的编码问题
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -11,9 +41,29 @@
 #include <nginx.h>
 
 
+/**
+ * @brief 添加带前缀的HTTP变量
+ *
+ * 此函数用于向Nginx配置中添加一个带有特定前缀的HTTP变量。
+ *
+ * @param cf Nginx配置结构体指针
+ * @param name 变量名称
+ * @param flags 变量标志
+ * @return 返回新添加的ngx_http_variable_t结构体指针，如果添加失败则返回NULL
+ */
 static ngx_http_variable_t *ngx_http_add_prefix_variable(ngx_conf_t *cf,
     ngx_str_t *name, ngx_uint_t flags);
 
+/**
+ * @brief 处理HTTP请求相关变量
+ *
+ * 此函数用于处理与HTTP请求相关的变量。
+ *
+ * @param r 指向ngx_http_request_t结构的指针，表示当前的HTTP请求
+ * @param v 指向ngx_http_variable_value_t结构的指针，用于存储变量的值
+ * @param data 附加数据，通常用于传递变量特定的信息
+ * @return 返回NGX_OK表示成功，其他值表示错误
+ */
 static ngx_int_t ngx_http_variable_request(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 #if 0
@@ -161,6 +211,7 @@ static ngx_int_t ngx_http_variable_time_local(ngx_http_request_t *r,
  * they are handled using dedicated entries
  */
 
+/* 定义一个静态数组，包含 HTTP 核心变量 */
 static ngx_http_variable_t  ngx_http_core_variables[] = {
 
     { ngx_string("http_host"), NULL, ngx_http_variable_header,

@@ -1,0 +1,20 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build, Install Nginx",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "if [ -f /usr/local/nginx/logs/nginx.pid ]; then sudo /usr/local/nginx/sbin/nginx -s quit; else echo \"Nginx is not running or PID file not found\"; fi && sleep 2 && make && sudo make install"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"],
+      "detail": "编译、安装 Nginx"
+    }
+  ]
+}

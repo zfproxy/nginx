@@ -4,6 +4,50 @@
  * Copyright (C) Valentin V. Bartenev
  */
 
+/*
+ * ngx_http_v2_module.c
+ *
+ * 该模块实现了Nginx的HTTP/2协议支持。
+ *
+ * 支持的功能:
+ * 1. HTTP/2协议处理
+ * 2. HTTP/2服务器推送
+ * 3. HTTP/2多路复用
+ * 4. HTTP/2头部压缩(HPACK)
+ * 5. HTTP/2流量控制
+ * 6. HTTP/2优先级处理
+ *
+ * 支持的指令:
+ * - http2: 启用或禁用HTTP/2支持
+ *   语法: http2 on|off;
+ *   上下文: http, server
+ * 
+ * - http2_max_concurrent_streams: 设置最大并发流数量
+ *   语法: http2_max_concurrent_streams number;
+ *   上下文: http, server
+ *
+ * - http2_recv_buffer_size: 设置接收缓冲区大小
+ *   语法: http2_recv_buffer_size size;
+ *   上下文: http, server
+ *
+ * - http2_idle_timeout: 设置空闲连接超时时间
+ *   语法: http2_idle_timeout time;
+ *   上下文: http, server
+ *
+ * 支持的变量:
+ * - $http2: 如果请求使用HTTP/2协议，则为"h2"，否则为空字符串
+ *
+ * 使用注意点:
+ * 1. 确保Nginx编译时启用了HTTP/2支持
+ * 2. HTTP/2需要TLS 1.2或更高版本支持，确保正确配置SSL证书
+ * 3. 合理配置http2_max_concurrent_streams以控制服务器负载
+ * 4. 注意调整http2_recv_buffer_size以优化性能和内存使用
+ * 5. 在高并发场景下，可能需要调整系统的文件描述符限制
+ * 6. 监控HTTP/2连接的建立和维护，确保连接的健康状态
+ * 7. 考虑使用HTTP/2服务器推送功能来优化性能
+ * 8. 定期更新Nginx以获取最新的HTTP/2协议支持和安全修复
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

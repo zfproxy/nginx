@@ -4,6 +4,43 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_epoll_module.c
+ *
+ * 该模块实现了基于epoll的事件驱动机制。
+ *
+ * 支持的功能:
+ * 1. 高效的I/O事件多路复用
+ * 2. 边缘触发(ET)和水平触发(LT)模式
+ * 3. 一次性事件(EPOLLONESHOT)
+ * 4. 独占模式(EPOLLEXCLUSIVE)
+ * 5. 动态添加、删除和修改监听的文件描述符
+ *
+ * 支持的指令:
+ * - epoll_events: 设置单次可以处理的最大事件数
+ *   语法: epoll_events number;
+ *   默认值: 512
+ *   上下文: events
+ *
+ * - worker_aio_requests: 设置每个工作进程可以处理的最大异步I/O操作数
+ *   语法: worker_aio_requests number;
+ *   默认值: 32
+ *   上下文: events
+ *
+ * 支持的变量:
+ * 本模块不直接定义变量，但其处理的事件可通过Nginx的标准变量访问。
+ *
+ * 使用注意点:
+ * 1. 确保系统支持epoll（Linux 2.6+）
+ * 2. 合理设置epoll_events值，以平衡性能和资源使用
+ * 3. 在高并发场景下，考虑使用EPOLLEXCLUSIVE避免惊群效应
+ * 4. 对于需要高精确度的场景，可以使用ET模式，但需要谨慎处理
+ * 5. 使用EPOLLONESHOT可以避免多个线程同时处理同一个fd，但需要及时重新添加事件
+ * 6. 监控epoll的性能指标，如等待时间、触发次数等，以便优化配置
+ * 7. 在使用异步I/O时，合理设置worker_aio_requests以避免资源耗尽
+ * 8. 定期检查和更新Nginx，以获取epoll模块的最新优化和bug修复
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

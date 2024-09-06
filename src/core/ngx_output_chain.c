@@ -4,6 +4,32 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_output_chain.c
+ *
+ * 该文件实现了Nginx的输出链处理功能。
+ *
+ * 支持的功能:
+ * 1. 处理输出链(ngx_output_chain)
+ * 2. 添加复制缓冲区到链中(ngx_output_chain_add_copy)
+ * 3. 对齐文件缓冲区(ngx_output_chain_align_file_buf)
+ * 4. 获取新的缓冲区(ngx_output_chain_get_buf)
+ * 5. 复制缓冲区内容(ngx_output_chain_copy_buf)
+ * 6. 支持sendfile和directio优化
+ *
+ * 使用注意点:
+ * 1. 需要正确初始化ngx_output_chain_ctx_t结构体
+ * 2. 注意处理内存分配失败的情况
+ * 3. 对于大文件传输，建议启用sendfile功能以提高性能
+ * 4. 使用directio时需注意内存对齐要求
+ * 5. 处理异步I/O和多线程情况时需额外注意
+ * 6. 注意处理输出链中的最后一个缓冲区
+ * 7. 对于过滤模块，需要正确设置ctx->output_filter和ctx->filter_ctx
+ * 8. 在处理过程中需要注意可能的递归调用
+ * 9. 对于特殊的输出要求(如限速)，需要在上层模块中实现
+ * 10. 使用ngx_output_chain函数时需要注意返回值的处理
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

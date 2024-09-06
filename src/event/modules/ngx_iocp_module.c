@@ -4,6 +4,32 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_iocp_module.c
+ *
+ * IOCP (I/O完成端口) 模块
+ *
+ * 支持的功能:
+ * - 使用Windows I/O完成端口进行高效的异步I/O操作
+ * - 多线程处理I/O事件
+ * - 支持AcceptEx优化
+ *
+ * 支持的指令:
+ * - iocp_threads: 设置IOCP工作线程数量
+ * - post_acceptex: 设置预先投递的AcceptEx请求数量
+ * - acceptex_read: 是否在AcceptEx时同时读取数据
+ *
+ * 支持的变量:
+ * 无
+ *
+ * 使用注意点:
+ * 1. 仅适用于Windows平台
+ * 2. 需要Windows SDK支持
+ * 3. 建议根据服务器CPU核心数合理设置iocp_threads
+ * 4. post_acceptex和acceptex_read可以优化连接接受性能，但也会增加内存使用
+ * 5. 与其他事件模块(如select、epoll等)互斥，不能同时使用
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

@@ -4,6 +4,35 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_headers_filter_module.c
+ *
+ * 该模块实现了对HTTP响应头的添加和修改功能。
+ *
+ * 支持的功能:
+ * - 添加自定义响应头
+ * - 修改已有响应头
+ * - 设置Expires和Cache-Control头
+ * - 添加和修改响应尾部(trailers)
+ * - 支持条件判断添加头部
+ *
+ * 支持的指令:
+ * - add_header: 添加自定义响应头
+ *   语法: add_header name value [always];
+ *   上下文: http, server, location, if in location
+ *
+ * - add_trailer: 添加响应尾部
+ *   语法: add_trailer name value [always];
+ *   上下文: http, server, location, if in location
+ *
+ * - expires: 设置Expires和Cache-Control头
+ *   语法: expires [modified] time;
+ *         expires epoch | max | off;
+ *   上下文: http, server, location, if in location
+ *
+ * 支持的变量:
+ * 该模块不提供任何变量。
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

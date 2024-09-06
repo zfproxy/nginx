@@ -4,6 +4,50 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_v3.c
+ *
+ * 该文件实现了HTTP/3协议的核心功能。
+ *
+ * 支持的功能:
+ * 1. HTTP/3会话的初始化和清理
+ * 2. HTTP/3连接的管理
+ * 3. HTTP/3流的处理
+ * 4. HTTP/3帧的发送和接收
+ * 5. QPACK头部压缩的支持
+ * 6. HTTP/3设置的处理
+ * 7. HTTP/3服务器推送
+ * 8. HTTP/3连接保活机制
+ *
+ * 支持的指令:
+ * - http3_max_table_capacity: 设置QPACK动态表的最大容量
+ *   语法: http3_max_table_capacity size;
+ *   上下文: http, server
+ * 
+ * - http3_max_blocked_streams: 设置最大被阻塞的流数量
+ *   语法: http3_max_blocked_streams number;
+ *   上下文: http, server
+ *
+ * - http3_push: 启用或禁用HTTP/3服务器推送
+ *   语法: http3_push on|off;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * - $http3: 如果请求使用HTTP/3协议，则为"h3"，否则为空字符串
+ * - $http3_ssl_curves: 客户端支持的椭圆曲线列表
+ * - $http3_ssl_ciphers: 协商使用的密码套件
+ *
+ * 使用注意点:
+ * 1. 确保正确配置SSL/TLS，HTTP/3依赖于QUIC，而QUIC需要TLS 1.3
+ * 2. 合理设置http3_max_table_capacity以平衡压缩效率和内存使用
+ * 3. 谨慎使用http3_push，避免不必要的资源推送
+ * 4. 监控HTTP/3连接的性能，特别是在高并发场景下
+ * 5. 注意处理HTTP/3特有的错误码和异常情况
+ * 6. 定期检查和更新以适应HTTP/3协议的演进
+ * 7. 考虑启用访问日志中的HTTP/3相关字段，以便于问题诊断
+ * 8. 在启用HTTP/3之前，确保网络环境支持UDP传输
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

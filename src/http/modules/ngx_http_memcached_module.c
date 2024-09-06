@@ -4,6 +4,50 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_memcached_module.c
+ *
+ * 该模块实现了与Memcached服务器的交互功能，允许Nginx从Memcached获取缓存内容。
+ *
+ * 主要功能:
+ * - 连接到Memcached服务器
+ * - 发送get请求获取缓存内容
+ * - 解析Memcached响应
+ * - 支持gzip压缩的内容
+ * - 支持upstream负载均衡
+ *
+ * 支持的指令:
+ * - memcached_pass: 设置Memcached服务器的地址
+ *   语法: memcached_pass address;
+ *   上下文: location, if in location
+ *
+ * - memcached_bind: 指定连接Memcached时使用的本地IP地址
+ *   语法: memcached_bind address | off;
+ *   上下文: http, server, location
+ *
+ * - memcached_connect_timeout: 设置与Memcached建立连接的超时时间
+ *   语法: memcached_connect_timeout time;
+ *   默认值: 60s
+ *   上下文: http, server, location
+ *
+ * - memcached_read_timeout: 设置从Memcached读取响应的超时时间
+ *   语法: memcached_read_timeout time;
+ *   默认值: 60s
+ *   上下文: http, server, location
+ *
+ * - memcached_send_timeout: 设置向Memcached发送请求的超时时间
+ *   语法: memcached_send_timeout time;
+ *   默认值: 60s
+ *   上下文: http, server, location
+ *
+ * - memcached_gzip_flag: 设置表示gzip压缩内容的标志
+ *   语法: memcached_gzip_flag flag;
+ *   默认值: 0
+ *   上下文: http, server, location
+ *
+ * 提供的变量:
+ * $memcached_key: Memcached的键名
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

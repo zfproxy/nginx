@@ -4,6 +4,30 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_parse.c
+ *
+ * 该文件实现了Nginx中的解析功能。
+ *
+ * 支持的功能:
+ * 1. 解析大小字符串 (ngx_parse_size)
+ * 2. 解析时间字符串 (ngx_parse_time)
+ * 3. 解析偏移量字符串 (ngx_parse_offset)
+ * 4. 解析布尔值字符串 (ngx_parse_bool)
+ *
+ * 使用注意点:
+ * 1. 输入字符串必须以null结尾
+ * 2. 大小解析支持K/k (千字节)和M/m (兆字节)后缀
+ * 3. 时间解析支持ms (毫秒), s (秒), m (分钟), h (小时), d (天), w (周), M (月), y (年)后缀
+ * 4. 偏移量解析支持K/k, M/m, G/g后缀
+ * 5. 布尔值解析支持on/off, yes/no, true/false, 1/0
+ * 6. 解析失败时会返回NGX_ERROR
+ * 7. 解析结果可能会超出某些类型的范围，使用时需要进行额外的范围检查
+ * 8. 在配置文件解析时，这些函数被广泛使用，需要注意性能影响
+ * 9. 对于大小和偏移量解析，注意可能的整数溢出问题
+ * 10. 时间解析结果的单位为毫秒，使用时可能需要进行单位转换
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -64,16 +88,19 @@ ngx_parse_offset(ngx_str_t *line)
 
     len = line->len;
 
+    // 如果输入字符串长度为0，返回错误
     if (len == 0) {
         return NGX_ERROR;
     }
 
+    // 获取最后一个字符作为单位
     unit = line->data[len - 1];
 
+    // 根据单位设置相应的最大值和比例
     switch (unit) {
     case 'K':
     case 'k':
-        len--;
+        len--;  // 减去单位字符
         max = NGX_MAX_OFF_T_VALUE / 1024;
         scale = 1024;
         break;
@@ -93,15 +120,19 @@ ngx_parse_offset(ngx_str_t *line)
         break;
 
     default:
+        // 如果没有单位，使用默认值
         max = NGX_MAX_OFF_T_VALUE;
         scale = 1;
     }
 
+    // 将字符串转换为off_t类型的数值
     offset = ngx_atoof(line->data, len);
+    // 检查转换是否成功，以及是否超过最大值
     if (offset == NGX_ERROR || offset > max) {
         return NGX_ERROR;
     }
 
+    // 根据单位进行缩放
     offset *= scale;
 
     return offset;

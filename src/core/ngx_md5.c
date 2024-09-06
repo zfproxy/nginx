@@ -5,6 +5,21 @@
  * http://openwall.info/wiki/people/solar/software/public-domain-source-code/md5
  */
 
+/*
+ * ngx_md5.c
+ *
+ * 这个文件包含了MD5哈希算法的实现。
+ * MD5是一种广泛使用的密码散列函数，用于生成128位（16字节）的哈希值。
+ * 
+ * 本实现基于Alexander Peslyak的公共领域实现：
+ * http://openwall.info/wiki/people/solar/software/public-domain-source-code/md5
+ *
+ * 主要功能：
+ * - ngx_md5_init: 初始化MD5上下文
+ * - ngx_md5_update: 更新MD5哈希计算
+ * - ngx_md5_final: 完成MD5哈希计算并生成最终哈希值
+ * - ngx_md5_body: 内部函数，处理MD5的主要哈希计算
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

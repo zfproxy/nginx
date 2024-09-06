@@ -4,6 +4,32 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_radix_tree.c
+ *
+ * 该文件实现了Nginx的基数树(Radix Tree)功能。
+ *
+ * 支持的功能:
+ * 1. 创建基数树 (ngx_radix_tree_create)
+ * 2. 32位基数树插入 (ngx_radix32tree_insert)
+ * 3. 32位基数树删除 (ngx_radix32tree_delete)
+ * 4. 32位基数树查找 (ngx_radix32tree_find)
+ * 5. 128位基数树操作 (用于IPv6)
+ * 6. 内存预分配优化
+ *
+ * 使用注意点:
+ * 1. 创建树时需要指定内存池，确保内存池生命周期足够长
+ * 2. 插入和删除操作需要同时提供key和mask
+ * 3. 查找操作只需提供key，会返回最匹配的值
+ * 4. 对于IPv4地址，使用32位操作函数；IPv6地址使用128位操作函数
+ * 5. 预分配参数可以优化初始化性能，但会占用更多内存
+ * 6. 树节点的value不应使用NGX_RADIX_NO_VALUE这个预定义值
+ * 7. 删除操作可能会导致树的重组，需要注意性能影响
+ * 8. 在高并发环境下，需要考虑同步访问的问题
+ * 9. 大量插入删除操作后，可能需要考虑树的平衡问题
+ * 10. 使用完毕后，通过销毁内存池来释放整个树的资源
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

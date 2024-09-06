@@ -4,6 +4,53 @@
  * Copyright (C) Roman Arutyunyan
  */
 
+/*
+ * ngx_http_v3_module.c
+ *
+ * 该模块实现了Nginx的HTTP/3功能支持。
+ *
+ * 支持的功能:
+ * 1. HTTP/3协议处理
+ * 2. QUIC传输层支持
+ * 3. HTTP/3服务器推送
+ * 4. HTTP/3多路复用
+ * 5. HTTP/3头部压缩(QPACK)
+ *
+ * 支持的指令:
+ * - http3: 启用或禁用HTTP/3支持
+ *   语法: http3 on|off;
+ *   上下文: http, server
+ * 
+ * - http3_hq: 启用或禁用HTTP/3 QUIC-Transport模式
+ *   语法: http3_hq on|off;
+ *   上下文: http, server
+ *
+ * - http3_max_concurrent_streams: 设置最大并发流数量
+ *   语法: http3_max_concurrent_streams number;
+ *   上下文: http, server
+ *
+ * - http3_stream_buffer_size: 设置QUIC流缓冲区大小
+ *   语法: http3_stream_buffer_size size;
+ *   上下文: http, server
+ *
+ * - quic_retry: 启用或禁用QUIC重试机制
+ *   语法: quic_retry on|off;
+ *   上下文: http, server
+ *
+ * 支持的变量:
+ * - $http3: 如果请求使用HTTP/3协议，则为"h3"，否则为空字符串
+ *
+ * 使用注意点:
+ * 1. 确保Nginx编译时启用了HTTP/3和QUIC支持
+ * 2. HTTP/3需要TLS 1.3支持，确保正确配置SSL证书
+ * 3. 合理配置http3_max_concurrent_streams以控制服务器负载
+ * 4. 注意调整http3_stream_buffer_size以优化性能和内存使用
+ * 5. 在高并发场景下，可能需要调整系统的文件描述符限制
+ * 6. 监控QUIC连接的建立和维护，确保网络环境支持UDP传输
+ * 7. 考虑启用quic_retry来防御某些类型的DDoS攻击
+ * 8. 定期更新Nginx以获取最新的HTTP/3协议支持和安全修复
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

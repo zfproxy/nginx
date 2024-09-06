@@ -4,34 +4,176 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * nginx.c
+ *
+ * 该文件实现了Nginx的主程序入口和核心初始化逻辑。
+ *
+ * 支持的功能:
+ * 1. 解析命令行参数
+ * 2. 初始化Nginx运行环境
+ * 3. 加载配置文件
+ * 4. 创建和管理工作进程
+ * 5. 处理信号
+ * 6. 实现优雅重启和热重载
+ * 7. 管理继承的套接字
+ * 8. 显示版本和帮助信息
+ * 9. 实现守护进程模式
+ * 10. 管理PID文件
+ *
+ * 使用注意点:
+ * 1. 确保以正确的用户权限运行Nginx
+ * 2. 正确配置工作进程数量以优化性能
+ * 3. 谨慎使用调试模式，避免在生产环境中启用
+ * 4. 定期检查日志文件以监控Nginx运行状态
+ * 5. 在修改配置后使用nginx -t测试配置有效性
+ * 6. 使用nginx -s signal来安全地控制Nginx进程
+ * 7. 注意文件描述符限制，可能需要调整系统设置
+ * 8. 在容器环境中运行时，注意适当配置信号处理
+ * 9. 使用-c选项指定自定义配置文件路径时要小心
+ * 10. 在升级Nginx版本时，注意配置文件的兼容性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <nginx.h>
 
 
+/**
+ * @brief 显示Nginx版本信息
+ */
 static void ngx_show_version_info(void);
+
+/**
+ * @brief 添加继承的套接字到新的cycle中
+ * @param cycle Nginx cycle结构体指针
+ * @return NGX_OK 成功，NGX_ERROR 失败
+ */
 static ngx_int_t ngx_add_inherited_sockets(ngx_cycle_t *cycle);
+
+/**
+ * @brief 清理环境变量
+ * @param data 用户数据指针
+ */
 static void ngx_cleanup_environment(void *data);
+
+/**
+ * @brief 清理单个环境变量
+ * @param data 用户数据指针
+ */
 static void ngx_cleanup_environment_variable(void *data);
+
+/**
+ * @brief 解析命令行选项
+ * @param argc 参数数量
+ * @param argv 参数数组
+ * @return NGX_OK 成功，NGX_ERROR 失败
+ */
 static ngx_int_t ngx_get_options(int argc, char *const *argv);
+
+/**
+ * @brief 处理解析后的命令行选项
+ * @param cycle Nginx cycle结构体指针
+ * @return NGX_OK 成功，NGX_ERROR 失败
+ */
 static ngx_int_t ngx_process_options(ngx_cycle_t *cycle);
+
+/**
+ * @brief 保存命令行参数
+ * @param cycle Nginx cycle结构体指针
+ * @param argc 参数数量
+ * @param argv 参数数组
+ * @return NGX_OK 成功，NGX_ERROR 失败
+ */
 static ngx_int_t ngx_save_argv(ngx_cycle_t *cycle, int argc, char *const *argv);
+
+/**
+ * @brief 创建核心模块配置
+ * @param cycle Nginx cycle结构体指针
+ * @return 创建的配置结构体指针
+ */
 static void *ngx_core_module_create_conf(ngx_cycle_t *cycle);
+
+/**
+ * @brief 初始化核心模块配置
+ * @param cycle Nginx cycle结构体指针
+ * @param conf 配置结构体指针
+ * @return NGX_CONF_OK 成功，否则返回错误字符串
+ */
 static char *ngx_core_module_init_conf(ngx_cycle_t *cycle, void *conf);
+
+/**
+ * @brief 设置用户
+ * @param cf 配置结构体指针
+ * @param cmd 命令结构体指针
+ * @param conf 配置指针
+ * @return NGX_CONF_OK 成功，否则返回错误字符串
+ */
 static char *ngx_set_user(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
+/**
+ * @brief 设置环境变量
+ * @param cf 配置结构体指针
+ * @param cmd 命令结构体指针
+ * @param conf 配置指针
+ * @return NGX_CONF_OK 成功，否则返回错误字符串
+ */
 static char *ngx_set_env(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
+/**
+ * @brief 设置进程优先级
+ * @param cf 配置结构体指针
+ * @param cmd 命令结构体指针
+ * @param conf 配置指针
+ * @return NGX_CONF_OK 成功，否则返回错误字符串
+ */
 static char *ngx_set_priority(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
+/**
+ * @brief 设置CPU亲和性
+ * @param cf 配置结构体指针
+ * @param cmd 命令结构体指针
+ * @param conf 配置指针
+ * @return NGX_CONF_OK 成功，否则返回错误字符串
+ */
 static char *ngx_set_cpu_affinity(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/**
+ * @brief 设置工作进程数量
+ * @param cf 配置结构体指针
+ * @param cmd 命令结构体指针
+ * @param conf 配置指针
+ * @return NGX_CONF_OK 成功，否则返回错误字符串
+ */
 static char *ngx_set_worker_processes(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/**
+ * @brief 加载动态模块
+ * @param cf 配置结构体指针
+ * @param cmd 命令结构体指针
+ * @param conf 配置指针
+ * @return NGX_CONF_OK 成功，否则返回错误字符串
+ */
 static char *ngx_load_module(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+
 #if (NGX_HAVE_DLOPEN)
+/**
+ * @brief 卸载动态模块
+ * @param data 用户数据指针
+ */
 static void ngx_unload_module(void *data);
 #endif
 
 
+/**
+ * @brief 定义调试点枚举数组
+ *
+ * 该数组定义了Nginx支持的不同调试点类型。
+ * 每个元素包含一个字符串表示的调试点名称和对应的枚举值。
+ */
 static ngx_conf_enum_t  ngx_debug_points[] = {
     { ngx_string("stop"), NGX_DEBUG_POINTS_STOP },
     { ngx_string("abort"), NGX_DEBUG_POINTS_ABORT },

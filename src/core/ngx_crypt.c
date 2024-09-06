@@ -3,6 +3,26 @@
  * Copyright (C) Maxim Dounin
  */
 
+/*
+ * ngx_crypt.c - Nginx加密模块
+ *
+ * 本文件实现了Nginx的加密功能，提供了多种加密算法的支持。
+ *
+ * 主要支持的功能:
+ * 1. APR1加密 (Apache密码格式)
+ * 2. 明文密码处理
+ * 3. SSHA (Salted SHA)加密
+ * 4. SHA加密
+ * 5. 系统crypt()函数的调用
+ *
+ * 使用注意点:
+ * - 确保正确选择适合的加密算法
+ * - 注意salt的格式，不同算法要求不同
+ * - 加密结果需要足够的内存空间，由函数内部分配
+ * - 对于不支持的加密格式，会回退到系统的crypt()函数
+ * - 加密操作可能耗时，在性能敏感场景下需谨慎使用
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

@@ -4,48 +4,106 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_referer_module.c
+ *
+ * 该模块实现了基于HTTP Referer头的访问控制功能。
+ *
+ * 支持的功能:
+ * - 基于白名单验证HTTP请求的Referer头
+ * - 支持精确匹配和正则表达式匹配
+ * - 可配置是否允许缺少Referer头的请求
+ * - 可配置是否允许被阻止的Referer
+ * - 支持服务器名称匹配
+ *
+ * 支持的指令:
+ * - valid_referers: 定义有效的引用者列表
+ *   语法: valid_referers none | blocked | server_names | string ...;
+ *   上下文: server, location
+ *
+ * 支持的变量:
+ * - $invalid_referer: 如果referer头无效则为"1"，否则为空字符串
+ *
+ * 使用注意点:
+ * 1. 合理配置valid_referers指令，避免错误地阻止合法请求
+ * 2. 考虑到Referer头可能被伪造，不应该将其作为唯一的安全措施
+ * 3. 使用正则表达式时要注意性能影响，过于复杂的正则可能会降低处理速度
+ * 4. 启用server_names选项时，确保正确配置了server_name指令
+ * 5. 对于不发送Referer头的请求（如HTTPS到HTTP的跳转），要考虑是否允许
+ * 6. 定期检查和更新referer白名单，以适应网站结构的变化
+ * 7. 在使用此模块时，建议同时启用日志记录，以便于分析和调试
+ * 8. 注意referer检查可能会影响搜索引擎爬虫的访问，需要适当配置
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/*
+ * 定义一个宏 NGX_HTTP_REFERER_NO_URI_PART
+ * 该宏的值为 ((void *) 4)
+ * 这个宏可能用于表示 Referer 头部中没有 URI 部分的特殊情况
+ */
 #define NGX_HTTP_REFERER_NO_URI_PART  ((void *) 4)
 
-
+/*
+ * NGX_HTTP_REFERER_NO_URI_PART 宏定义
+ *
+ * 该宏用于表示 Referer 头部中没有 URI 部分的特殊情况
+ * 值为 ((void *) 4)，这是一个特殊的指针值
+ * 在处理 Referer 时，如果遇到这个值，表示该 Referer 没有 URI 部分
+ * 使用指针值作为标记可以节省内存，并且可以快速进行比较
+ */
 typedef struct {
-    ngx_hash_combined_t      hash;
+    ngx_hash_combined_t      hash;  // 组合哈希表，用于快速查找引用者
 
 #if (NGX_PCRE)
-    ngx_array_t             *regex;
-    ngx_array_t             *server_name_regex;
+    ngx_array_t             *regex;  // 存储正则表达式的数组
+    ngx_array_t             *server_name_regex;  // 存储服务器名称正则表达式的数组
 #endif
 
-    ngx_flag_t               no_referer;
-    ngx_flag_t               blocked_referer;
-    ngx_flag_t               server_names;
+    ngx_flag_t               no_referer;  // 标志位，表示是否允许没有 Referer 头的请求
+    ngx_flag_t               blocked_referer;  // 标志位，表示是否允许被阻止的引用者
+    ngx_flag_t               server_names;  // 标志位，表示是否检查服务器名称
 
-    ngx_hash_keys_arrays_t  *keys;
+    ngx_hash_keys_arrays_t  *keys;  // 用于构建哈希表的键值数组
 
-    ngx_uint_t               referer_hash_max_size;
-    ngx_uint_t               referer_hash_bucket_size;
+    ngx_uint_t               referer_hash_max_size;  // 引用者哈希表的最大大小
+    ngx_uint_t               referer_hash_bucket_size;  // 引用者哈希表的桶大小
 } ngx_http_referer_conf_t;
 
 
+/* 添加 referer 模块相关的变量 */
 static ngx_int_t ngx_http_referer_add_variables(ngx_conf_t *cf);
+
+/* 创建 referer 模块的配置结构 */
 static void * ngx_http_referer_create_conf(ngx_conf_t *cf);
+
+/* 合并 referer 模块的配置 */
 static char * ngx_http_referer_merge_conf(ngx_conf_t *cf, void *parent,
     void *child);
+
+/* 处理 valid_referers 指令 */
 static char *ngx_http_valid_referers(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/* 添加一个 referer 到哈希表中 */
 static ngx_int_t ngx_http_add_referer(ngx_conf_t *cf,
     ngx_hash_keys_arrays_t *keys, ngx_str_t *value, ngx_str_t *uri);
+
+/* 添加一个正则表达式 referer */
 static ngx_int_t ngx_http_add_regex_referer(ngx_conf_t *cf,
     ngx_http_referer_conf_t *rlcf, ngx_str_t *name);
+
 #if (NGX_PCRE)
+/* 添加一个正则表达式服务器名称 */
 static ngx_int_t ngx_http_add_regex_server_name(ngx_conf_t *cf,
     ngx_http_referer_conf_t *rlcf, ngx_http_regex_t *regex);
 #endif
+
+/* 比较两个 referer 通配符的函数 */
 static int ngx_libc_cdecl ngx_http_cmp_referer_wildcards(const void *one,
     const void *two);
 
@@ -111,6 +169,17 @@ ngx_module_t  ngx_http_referer_module = {
 static ngx_str_t  ngx_http_invalid_referer_name = ngx_string("invalid_referer");
 
 
+/**
+ * @brief 处理HTTP Referer变量的函数
+ *
+ * 该函数用于处理和验证HTTP请求中的Referer头部信息。
+ * 它检查Referer是否有效，并根据配置的规则进行验证。
+ *
+ * @param r HTTP请求结构体
+ * @param v 变量值结构体
+ * @param data 用户数据
+ * @return ngx_int_t 返回处理结果
+ */
 static ngx_int_t
 ngx_http_referer_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v,
     uintptr_t data)

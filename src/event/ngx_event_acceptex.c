@@ -4,6 +4,40 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_event_acceptex.c
+ *
+ * 该文件实现了基于Windows平台的AcceptEx异步接受连接功能。
+ *
+ * 支持的功能:
+ * 1. 异步接受新的TCP连接
+ * 2. 高效处理大量并发连接
+ * 3. 支持IPv4和IPv6
+ * 4. 获取连接的本地和远程地址信息
+ * 5. 支持post-accept缓冲区
+ *
+ * 支持的指令:
+ * - listen (用于配置AcceptEx监听)
+ * - accept_mutex (影响AcceptEx的使用)
+ * - multi_accept (影响AcceptEx的行为)
+ *
+ * 相关变量:
+ * - ngx_use_accept_mutex
+ * - ngx_accept_mutex_held
+ * - ngx_accept_events
+ * - ngx_posted_events
+ *
+ * 使用注意点:
+ * 1. 仅适用于Windows平台
+ * 2. 需要正确配置AcceptEx函数指针
+ * 3. 注意处理SO_UPDATE_ACCEPT_CONTEXT的设置
+ * 4. 合理设置post_accept_buffer_size以优化性能
+ * 5. 注意处理AcceptEx可能的错误情况
+ * 6. 在高并发场景下，需要注意内存和句柄的使用
+ * 7. 与其他事件模块配合使用时需要注意兼容性
+ * 8. 定期检查和更新，以获取最新的Windows API支持
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

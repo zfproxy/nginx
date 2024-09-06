@@ -4,6 +4,38 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_event_accept.c
+ *
+ * 该文件实现了Nginx的事件接受功能，主要处理新连接的接受和初始化。
+ *
+ * 支持的功能:
+ * 1. 接受新的TCP连接
+ * 2. 非阻塞I/O
+ * 3. 多路复用(epoll, kqueue等)
+ * 4. 负载均衡
+ * 5. 连接限制
+ *
+ * 支持的指令:
+ * - accept_mutex
+ * - accept_mutex_delay
+ * - multi_accept
+ * - use (选择事件模型)
+ *
+ * 相关变量:
+ * - ngx_accept_disabled
+ * - ngx_use_accept_mutex
+ * - ngx_accept_mutex_held
+ * - ngx_accept_mutex_delay
+ *
+ * 使用注意点:
+ * 1. 合理配置worker进程数，避免过多竞争
+ * 2. 适当调整accept_mutex_delay，平衡接受新连接和处理已有连接
+ * 3. 在高并发场景下，考虑开启reuseport
+ * 4. 监控accept队列溢出情况，适时调整backlog参数
+ * 5. 注意文件描述符限制，合理设置worker_connections
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

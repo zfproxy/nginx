@@ -5,20 +5,45 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_module.c
+ *
+ * 本文件包含Nginx模块系统的核心功能实现。
+ *
+ * 主要功能:
+ * 1. 模块的初始化和配置
+ * 2. 动态模块的加载和卸载
+ * 3. 模块索引的管理
+ * 4. 模块上下文的处理
+ *
+ * 使用注意:
+ * - 确保在使用任何模块相关函数前调用ngx_preinit_modules()
+ * - 动态模块的数量不应超过NGX_MAX_DYNAMIC_MODULES
+ * - 在添加新的模块类型时，需要更新相关的索引计算函数
+ * - 模块的初始化顺序很重要，请谨慎调整modules数组中模块的顺序
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 
 
+/* 定义动态模块的最大数量 */
 #define NGX_MAX_DYNAMIC_MODULES  128
 
 
+/* 声明用于获取模块索引的静态函数 */
 static ngx_uint_t ngx_module_index(ngx_cycle_t *cycle);
+
+/* 声明用于获取特定类型模块上下文索引的静态函数 */
 static ngx_uint_t ngx_module_ctx_index(ngx_cycle_t *cycle, ngx_uint_t type,
     ngx_uint_t index);
 
 
+/* 全局变量，表示最大模块数量 */
 ngx_uint_t         ngx_max_module;
+
+/* 静态变量，表示当前已加载的模块数量 */
 static ngx_uint_t  ngx_modules_n;
 
 

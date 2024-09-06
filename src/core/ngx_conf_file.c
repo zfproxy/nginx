@@ -4,18 +4,85 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_conf_file.c - Nginx配置文件处理模块
+ *
+ * 本文件实现了Nginx的配置文件解析和处理功能，负责读取、解析和应用配置指令。
+ *
+ * 主要支持的功能:
+ * 1. 解析配置文件中的指令和参数
+ * 2. 处理配置块和嵌套结构
+ * 3. 验证配置指令的语法和参数
+ * 4. 应用配置指令到Nginx的运行时环境
+ * 5. 管理配置文件的包含和继承关系
+ * 6. 支持配置文件的条件编译和变量替换
+ * 7. 处理配置文件的转储和备份
+ *
+ * 使用注意点:
+ * - 配置文件的语法必须严格遵循Nginx的规范
+ * - 配置指令的顺序可能影响最终的行为，需要注意先后关系
+ * - 在处理大型配置文件时，需要注意内存使用和性能影响
+ * - 配置文件中的路径最好使用绝对路径，避免相对路径可能带来的问题
+ * - 在使用include指令时，要注意避免循环包含
+ * - 配置文件中的变量替换和条件编译功能需要谨慎使用，以免增加复杂性
+ * - 在修改配置文件后，务必进行语法检查和测试，确保配置的正确性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 
 #define NGX_CONF_BUFFER  4096
 
+/**
+ * @brief 添加配置文件到转储列表
+ *
+ * 该函数用于将指定的配置文件添加到Nginx的配置转储列表中。
+ * 配置转储功能允许Nginx在某些情况下（如重新加载配置时）保存当前的配置状态。
+ *
+ * @param cf 指向当前Nginx配置结构的指针
+ * @param filename 要添加到转储列表的配置文件名
+ * @return 成功时返回NGX_OK，失败时返回NGX_ERROR
+ */
 static ngx_int_t ngx_conf_add_dump(ngx_conf_t *cf, ngx_str_t *filename);
+/**
+ * @brief 处理配置指令
+ *
+ * 该函数用于处理Nginx配置文件中的指令。
+ * 它会解析配置指令并调用相应的处理函数。
+ *
+ * @param cf 指向当前Nginx配置结构的指针
+ * @param last 标识是否为最后一个指令的标志
+ * @return 成功时返回NGX_OK，失败时返回NGX_ERROR
+ */
 static ngx_int_t ngx_conf_handler(ngx_conf_t *cf, ngx_int_t last);
+/**
+ * @brief 读取配置文件中的下一个标记（token）
+ *
+ * 该函数用于从Nginx配置文件中读取下一个标记（token）。
+ * 标记可以是指令名、参数或其他配置元素。
+ *
+ * @param cf 指向当前Nginx配置结构的指针
+ * @return 成功时返回NGX_OK，失败时返回NGX_ERROR，遇到文件结束时返回NGX_CONF_FILE_DONE
+ */
 static ngx_int_t ngx_conf_read_token(ngx_conf_t *cf);
+/**
+ * @brief 刷新并关闭配置文件
+ *
+ * 该函数用于刷新并关闭Nginx配置过程中打开的所有文件。
+ * 在Nginx退出进程时调用，确保所有配置相关的文件操作都已完成。
+ *
+ * @param cycle 指向当前Nginx周期结构的指针
+ */
 static void ngx_conf_flush_files(ngx_cycle_t *cycle);
 
 
+/**
+ * @brief Nginx配置命令数组
+ *
+ * 这个静态数组定义了Nginx配置模块支持的命令。
+ * 目前，它只包含一个命令 "include"，用于在配置文件中包含其他配置文件。
+ */
 static ngx_command_t  ngx_conf_commands[] = {
 
     { ngx_string("include"),
@@ -29,6 +96,12 @@ static ngx_command_t  ngx_conf_commands[] = {
 };
 
 
+/**
+ * @brief Nginx配置模块定义
+ *
+ * 这个结构定义了Nginx的配置模块。配置模块负责处理Nginx的配置文件和命令行参数。
+ * 它包含了处理配置指令的函数和其他与配置相关的回调函数。
+ */
 ngx_module_t  ngx_conf_module = {
     NGX_MODULE_V1,
     NULL,                                  /* module context */
@@ -47,6 +120,13 @@ ngx_module_t  ngx_conf_module = {
 
 /* The eight fixed arguments */
 
+/**
+ * @brief 定义支持的参数数量数组
+ *
+ * 这个静态数组定义了Nginx配置指令支持的固定参数数量。
+ * 数组中的每个元素对应一种参数数量配置，从无参数到7个参数。
+ * 这些常量值在处理配置指令时用于验证参数数量的正确性。
+ */
 static ngx_uint_t argument_number[] = {
     NGX_CONF_NOARGS,
     NGX_CONF_TAKE1,

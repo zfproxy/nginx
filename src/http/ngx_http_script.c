@@ -4,31 +4,212 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_script.c
+ *
+ * 该文件实现了Nginx的HTTP脚本编译和执行功能。
+ *
+ * 支持的功能:
+ * 1. 变量解析和替换
+ * 2. 复杂表达式求值
+ * 3. 条件判断
+ * 4. 循环结构
+ * 5. 子请求生成
+ * 6. 重定向处理
+ * 7. HTTP头部修改
+ * 8. URL重写
+ * 9. 访问控制
+ * 10. 日志记录
+ *
+ * 支持的指令:
+ * - set: 设置变量值
+ *   语法: set $variable value;
+ *   上下文: server, location, if
+ *
+ * - rewrite: 重写URL
+ *   语法: rewrite regex replacement [flag];
+ *   上下文: server, location, if
+ *
+ * - if: 条件判断
+ *   语法: if (condition) { ... }
+ *   上下文: server, location
+ *
+ * 支持的变量:
+ * - $http_*: HTTP请求头字段
+ * - $arg_*: 请求参数
+ * - $cookie_*: Cookie值
+ * - $request_*: 请求相关信息
+ *
+ * 使用注意点:
+ * 1. 复杂的脚本可能影响性能，应谨慎使用
+ * 2. 变量替换可能引入安全风险，注意输入验证
+ * 3. 避免创建过多的变量，可能增加内存使用
+ * 4. 注意脚本中的循环和递归，防止过度消耗资源
+ * 5. 大量使用if指令可能导致配置难以维护
+ * 6. 重写规则应仔细测试，避免意外的重定向循环
+ * 7. 在处理敏感数据时，注意日志记录的安全性
+ * 8. 复杂的URL重写可能影响SEO，需要权衡
+ * 9. 频繁修改HTTP头部可能增加处理开销
+ * 10. 使用子请求时要注意overall性能影响
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/* 
+ * 初始化脚本编译所需的数组
+ * 参数:
+ *   sc: 指向ngx_http_script_compile_t结构体的指针，包含编译信息
+ * 返回值:
+ *   NGX_OK: 初始化成功
+ *   NGX_ERROR: 初始化失败
+ */
 static ngx_int_t ngx_http_script_init_arrays(ngx_http_script_compile_t *sc);
+/*
+ * 完成脚本编译过程
+ * 参数:
+ *   sc: 指向ngx_http_script_compile_t结构体的指针，包含编译信息
+ * 返回值:
+ *   NGX_OK: 编译完成成功
+ *   NGX_ERROR: 编译完成失败
+ * 说明:
+ *   这个函数在脚本编译的最后阶段被调用，用于执行一些清理工作
+ *   或者添加最终的编译代码
+ */
 static ngx_int_t ngx_http_script_done(ngx_http_script_compile_t *sc);
+/*
+ * 添加复制代码到脚本编译结构中
+ * 参数:
+ *   sc: 指向ngx_http_script_compile_t结构体的指针，包含编译信息
+ *   value: 要复制的字符串值
+ *   last: 标志是否为最后一个复制操作
+ * 返回值:
+ *   NGX_OK: 添加成功
+ *   NGX_ERROR: 添加失败
+ * 说明:
+ *   这个函数用于将一段固定的字符串添加到编译后的脚本中，
+ *   通常用于处理不需要变量替换的静态文本部分
+ */
 static ngx_int_t ngx_http_script_add_copy_code(ngx_http_script_compile_t *sc,
     ngx_str_t *value, ngx_uint_t last);
+/*
+ * 添加变量代码到脚本编译结构中
+ * 参数:
+ *   sc: 指向ngx_http_script_compile_t结构体的指针，包含编译信息
+ *   name: 变量名
+ * 返回值:
+ *   NGX_OK: 添加成功
+ *   NGX_ERROR: 添加失败
+ * 说明:
+ *   这个函数用于将变量引用添加到编译后的脚本中，
+ *   通常用于处理需要在运行时进行变量替换的动态部分
+ */
 static ngx_int_t ngx_http_script_add_var_code(ngx_http_script_compile_t *sc,
     ngx_str_t *name);
+/*
+ * 添加参数代码到脚本编译结构中
+ * 参数:
+ *   sc: 指向ngx_http_script_compile_t结构体的指针，包含编译信息
+ * 返回值:
+ *   NGX_OK: 添加成功
+ *   NGX_ERROR: 添加失败
+ * 说明:
+ *   这个函数用于将处理请求参数的代码添加到编译后的脚本中，
+ *   通常用于处理URL中的查询字符串或POST请求的参数
+ */
 static ngx_int_t ngx_http_script_add_args_code(ngx_http_script_compile_t *sc);
 #if (NGX_PCRE)
+/*
+ * 添加捕获代码到脚本编译结构中
+ * 参数:
+ *   sc: 指向ngx_http_script_compile_t结构体的指针，包含编译信息
+ *   n: 捕获组的索引
+ * 返回值:
+ *   NGX_OK: 添加成功
+ *   NGX_ERROR: 添加失败
+ * 说明:
+ *   这个函数用于将正则表达式捕获组的处理代码添加到编译后的脚本中，
+ *   通常用于处理使用正则表达式匹配后需要提取的子字符串
+ */
 static ngx_int_t ngx_http_script_add_capture_code(ngx_http_script_compile_t *sc,
     ngx_uint_t n);
 #endif
+/*
+ * 添加完整名称代码到脚本编译结构中
+ * 参数:
+ *   sc: 指向ngx_http_script_compile_t结构体的指针，包含编译信息
+ * 返回值:
+ *   NGX_OK: 添加成功
+ *   NGX_ERROR: 添加失败
+ * 说明:
+ *   这个函数用于将生成完整名称的代码添加到编译后的脚本中，
+ *   通常用于处理需要构建完整路径或URL的场景
+ */
 static ngx_int_t
     ngx_http_script_add_full_name_code(ngx_http_script_compile_t *sc);
+/*
+ * 计算完整名称的长度
+ * 参数:
+ *   e: 指向ngx_http_script_engine_t结构体的指针，包含脚本执行的上下文信息
+ * 返回值:
+ *   size_t: 返回计算得到的完整名称长度
+ * 说明:
+ *   这个函数用于计算生成完整名称所需的长度，
+ *   通常与ngx_http_script_full_name_code函数配合使用，
+ *   用于预先分配足够的内存空间来存储完整名称
+ */
 static size_t ngx_http_script_full_name_len_code(ngx_http_script_engine_t *e);
+/*
+ * 生成完整名称的代码
+ * 参数:
+ *   e: 指向ngx_http_script_engine_t结构体的指针，包含脚本执行的上下文信息
+ * 说明:
+ *   这个函数用于生成完整名称，通常与ngx_http_script_full_name_len_code函数配合使用。
+ *   它会根据上下文信息构建完整的名称（如路径或URL），并将结果存储在适当的位置。
+ *   这个函数在处理需要完整路径或URL的场景中非常有用，比如文件操作或重定向。
+ */
 static void ngx_http_script_full_name_code(ngx_http_script_engine_t *e);
 
 
+/*
+ * 定义宏 ngx_http_script_exit
+ *
+ * 功能:
+ * 将 ngx_http_script_exit_code 变量的地址转换为 unsigned char 指针类型
+ *
+ * 说明:
+ * 1. 这个宏用于脚本执行过程中表示退出或结束的标记
+ * 2. 通过将变量地址转换为指针，可以在脚本代码中使用这个特殊值来控制执行流程
+ * 3. 通常在脚本引擎中检测到这个值时，会触发脚本执行的终止
+ *
+ * 注意:
+ * - 这个宏依赖于 ngx_http_script_exit_code 变量的定义
+ * - 在使用此宏时，应确保 ngx_http_script_exit_code 已正确初始化
+ */
 #define ngx_http_script_exit  (u_char *) &ngx_http_script_exit_code
 
+/*
+ * 定义静态变量 ngx_http_script_exit_code
+ *
+ * 功能:
+ * 用作脚本执行的退出标记
+ *
+ * 说明:
+ * 1. 类型为 uintptr_t，是一个无符号整数类型，大小足以存储指针
+ * 2. 初始化为 NULL 的 uintptr_t 值
+ * 3. 通常与 ngx_http_script_exit 宏配合使用
+ *
+ * 用途:
+ * - 在脚本执行过程中，用于标识脚本执行的结束点
+ * - 脚本引擎检测到这个值时，会触发脚本执行的终止
+ *
+ * 注意:
+ * - 作为静态变量，其生命周期贯穿整个程序运行期
+ * - 在多线程环境中使用时需要注意同步问题
+ */
 static uintptr_t ngx_http_script_exit_code = (uintptr_t) NULL;
 
 

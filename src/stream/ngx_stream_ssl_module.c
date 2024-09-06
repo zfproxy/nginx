@@ -4,89 +4,166 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_stream_ssl_module.c
+ *
+ * 该模块提供了NGINX流模块的SSL/TLS支持
+ *
+ * 支持的功能:
+ * 1. SSL/TLS加密
+ * 2. 证书管理
+ * 3. 会话缓存
+ * 4. OCSP stapling
+ * 5. SNI (Server Name Indication)
+ * 6. ALPN (Application-Layer Protocol Negotiation)
+ *
+ * 支持的指令:
+ * - ssl_certificate
+ * - ssl_certificate_key
+ * - ssl_password_file
+ * - ssl_ciphers
+ * - ssl_prefer_server_ciphers
+ * - ssl_protocols
+ * - ssl_verify_client
+ * - ssl_verify_depth
+ * - ssl_session_cache
+ * - ssl_session_tickets
+ * - ssl_session_timeout
+ * - ssl_ocsp
+ * - ssl_ocsp_cache
+ * - ssl_alpn
+ *
+ * 支持的变量:
+ * - $ssl_cipher
+ * - $ssl_ciphers
+ * - $ssl_client_cert
+ * - $ssl_client_fingerprint
+ * - $ssl_client_i_dn
+ * - $ssl_client_s_dn
+ * - $ssl_client_serial
+ * - $ssl_client_v_end
+ * - $ssl_client_v_remain
+ * - $ssl_client_v_start
+ * - $ssl_client_verify
+ * - $ssl_protocol
+ * - $ssl_server_name
+ *
+ * 使用注意点:
+ * 1. 确保正确配置证书和私钥文件路径
+ * 2. 根据安全需求选择适当的SSL协议和密码套件
+ * 3. 合理配置会话缓存以提高性能
+ * 4. 在使用客户端证书验证时，注意设置正确的验证深度
+ * 5. 启用OCSP stapling时，确保OCSP响应器可用
+ * 6. 使用ALPN时，确保服务器支持相应的应用层协议
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
 
+// SSL变量处理函数指针类型定义
 typedef ngx_int_t (*ngx_ssl_variable_handler_pt)(ngx_connection_t *c,
     ngx_pool_t *pool, ngx_str_t *s);
 
 
+// 默认密码套件
 #define NGX_DEFAULT_CIPHERS     "HIGH:!aNULL:!MD5"
+// 默认ECDH曲线
 #define NGX_DEFAULT_ECDH_CURVE  "auto"
 
 
+// SSL处理函数声明
 static ngx_int_t ngx_stream_ssl_handler(ngx_stream_session_t *s);
+// SSL连接初始化函数声明
 static ngx_int_t ngx_stream_ssl_init_connection(ngx_ssl_t *ssl,
     ngx_connection_t *c);
+// SSL握手处理函数声明
 static void ngx_stream_ssl_handshake_handler(ngx_connection_t *c);
 #ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+// SNI回调函数声明
 static int ngx_stream_ssl_servername(ngx_ssl_conn_t *ssl_conn, int *ad,
     void *arg);
 #endif
 #ifdef TLSEXT_TYPE_application_layer_protocol_negotiation
+// ALPN选择回调函数声明
 static int ngx_stream_ssl_alpn_select(ngx_ssl_conn_t *ssl_conn,
     const unsigned char **out, unsigned char *outlen,
     const unsigned char *in, unsigned int inlen, void *arg);
 #endif
 #ifdef SSL_R_CERT_CB_ERROR
+// 证书回调函数声明
 static int ngx_stream_ssl_certificate(ngx_ssl_conn_t *ssl_conn, void *arg);
 #endif
+// 静态SSL变量处理函数声明
 static ngx_int_t ngx_stream_ssl_static_variable(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
+// SSL变量处理函数声明
 static ngx_int_t ngx_stream_ssl_variable(ngx_stream_session_t *s,
     ngx_stream_variable_value_t *v, uintptr_t data);
 
+// 添加SSL变量函数声明
 static ngx_int_t ngx_stream_ssl_add_variables(ngx_conf_t *cf);
+// 创建SSL服务器配置函数声明
 static void *ngx_stream_ssl_create_srv_conf(ngx_conf_t *cf);
+// 合并SSL服务器配置函数声明
 static char *ngx_stream_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent,
     void *child);
 
+// 编译SSL证书函数声明
 static ngx_int_t ngx_stream_ssl_compile_certificates(ngx_conf_t *cf,
     ngx_stream_ssl_srv_conf_t *conf);
 
+// SSL密码文件配置函数声明
 static char *ngx_stream_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+// SSL会话缓存配置函数声明
 static char *ngx_stream_ssl_session_cache(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+// OCSP缓存配置函数声明
 static char *ngx_stream_ssl_ocsp_cache(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+// ALPN配置函数声明
 static char *ngx_stream_ssl_alpn(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
+// SSL配置命令检查函数声明
 static char *ngx_stream_ssl_conf_command_check(ngx_conf_t *cf, void *post,
     void *data);
 
+// SSL初始化函数声明
 static ngx_int_t ngx_stream_ssl_init(ngx_conf_t *cf);
 
 
+// SSL/TLS协议版本配置选项
 static ngx_conf_bitmask_t  ngx_stream_ssl_protocols[] = {
-    { ngx_string("SSLv2"), NGX_SSL_SSLv2 },
-    { ngx_string("SSLv3"), NGX_SSL_SSLv3 },
-    { ngx_string("TLSv1"), NGX_SSL_TLSv1 },
-    { ngx_string("TLSv1.1"), NGX_SSL_TLSv1_1 },
-    { ngx_string("TLSv1.2"), NGX_SSL_TLSv1_2 },
-    { ngx_string("TLSv1.3"), NGX_SSL_TLSv1_3 },
-    { ngx_null_string, 0 }
+    { ngx_string("SSLv2"), NGX_SSL_SSLv2 },    // SSL 2.0 协议（不推荐使用）
+    { ngx_string("SSLv3"), NGX_SSL_SSLv3 },    // SSL 3.0 协议（不推荐使用）
+    { ngx_string("TLSv1"), NGX_SSL_TLSv1 },    // TLS 1.0 协议
+    { ngx_string("TLSv1.1"), NGX_SSL_TLSv1_1 },// TLS 1.1 协议
+    { ngx_string("TLSv1.2"), NGX_SSL_TLSv1_2 },// TLS 1.2 协议
+    { ngx_string("TLSv1.3"), NGX_SSL_TLSv1_3 },// TLS 1.3 协议
+    { ngx_null_string, 0 }                     // 结束标记
 };
 
 
+// 客户端证书验证模式配置选项
 static ngx_conf_enum_t  ngx_stream_ssl_verify[] = {
-    { ngx_string("off"), 0 },
-    { ngx_string("on"), 1 },
-    { ngx_string("optional"), 2 },
-    { ngx_string("optional_no_ca"), 3 },
-    { ngx_null_string, 0 }
+    { ngx_string("off"), 0 },          // 关闭客户端证书验证
+    { ngx_string("on"), 1 },           // 开启客户端证书验证
+    { ngx_string("optional"), 2 },     // 可选的客户端证书验证
+    { ngx_string("optional_no_ca"), 3 },// 可选的客户端证书验证，但不验证CA
+    { ngx_null_string, 0 }             // 结束标记
 };
 
 
+// OCSP（在线证书状态协议）配置选项
 static ngx_conf_enum_t  ngx_stream_ssl_ocsp[] = {
-    { ngx_string("off"), 0 },
-    { ngx_string("on"), 1 },
-    { ngx_string("leaf"), 2 },
-    { ngx_null_string, 0 }
+    { ngx_string("off"), 0 },  // 关闭OCSP
+    { ngx_string("on"), 1 },   // 开启OCSP
+    { ngx_string("leaf"), 2 }, // 仅验证叶子证书
+    { ngx_null_string, 0 }     // 结束标记
 };
 
 

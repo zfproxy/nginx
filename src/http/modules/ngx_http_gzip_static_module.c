@@ -4,6 +4,25 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_gzip_static_module.c
+ *
+ * 该模块实现了静态gzip文件的自动服务功能。
+ *
+ * 支持的功能:
+ * - 自动检测并服务预压缩的.gz文件
+ * - 可配置为总是尝试服务.gz文件，即使客户端不支持gzip
+ * - 与标准gzip模块无缝集成
+ *
+ * 支持的指令:
+ * - gzip_static: 启用静态gzip文件服务
+ *   语法: gzip_static off | on | always;
+ *   默认值: off
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * 该模块不提供任何变量。
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

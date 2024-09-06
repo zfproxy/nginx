@@ -4,6 +4,59 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_rewrite_module.c
+ *
+ * 该模块实现了URL重写和重定向功能。
+ *
+ * 支持的功能:
+ * - 基于正则表达式的URL重写
+ * - 内部重定向
+ * - 外部重定向(返回3xx状态码)
+ * - 条件判断(if语句)
+ * - 设置变量
+ * - 中断重写规则的执行
+ *
+ * 支持的指令:
+ * - rewrite: 重写URL
+ *   语法: rewrite regex replacement [flag];
+ *   上下文: server, location, if
+ *
+ * - return: 停止处理并返回指定状态码
+ *   语法: return code [text];
+ *         return code URL;
+ *         return URL;
+ *   上下文: server, location, if
+ *
+ * - break: 停止处理当前的ngx_http_rewrite_module指令集
+ *   语法: break;
+ *   上下文: server, location, if
+ *
+ * - if: 条件判断
+ *   语法: if (condition) { ... }
+ *   上下文: server, location
+ *
+ * - set: 设置变量
+ *   语法: set $variable value;
+ *   上下文: server, location, if
+ *
+ * 支持的变量:
+ * - $args: 请求行中的参数
+ * - $is_args: 如果请求行带有参数则为"?"，否则为空字符串
+ * - $uri: 请求中的当前URI(不带请求参数)
+ * - $request_uri: 请求中的当前URI(带有请求参数)
+ *
+ * 使用注意点:
+ * 1. 重写规则的顺序很重要，按照配置文件中的顺序依次执行
+ * 2. 使用last标志时要注意避免重写循环
+ * 3. 在location块中使用rewrite指令时要特别小心，可能会导致意外的行为
+ * 4. 过多的重写规则可能会影响性能，应适度使用
+ * 5. 使用if指令时要注意其执行顺序和作用域
+ * 6. 在进行URL重写时，要考虑对SEO的影响
+ * 7. 使用return指令时，要确保返回的状态码和URL是合理的
+ * 8. 在使用正则表达式时，要注意转义特殊字符
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

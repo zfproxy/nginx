@@ -4,6 +4,32 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_realip_module.c
+ *
+ * 该模块实现了邮件服务器的客户端真实IP地址获取功能。
+ *
+ * 支持的功能:
+ * - 从指定的可信代理IP地址获取客户端真实IP
+ * - 支持IPv4和IPv6地址
+ * - 可配置多个可信代理IP或IP段
+ *
+ * 支持的指令:
+ * - set_real_ip_from: 设置可信的代理IP地址或地址段
+ *
+ * 相关变量:
+ * - $remote_addr: 获取到的客户端真实IP地址
+ * - $realip_remote_addr: 原始的远程地址
+ *
+ * 使用注意点:
+ * 1. 正确配置可信代理IP，避免IP伪造
+ * 2. 注意代理链中的顺序，确保获取到最初的客户端IP
+ * 3. 与其他模块(如access模块)配合使用时，注意IP判断的先后顺序
+ * 4. 在日志格式中使用$remote_addr可记录真实客户端IP
+ * 5. 定期检查并更新可信代理IP列表，确保安全性
+ * 6. 在启用该模块后，需要重启Nginx使配置生效
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

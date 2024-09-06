@@ -4,6 +4,56 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_special_response.c
+ *
+ * 该文件实现了Nginx处理特殊HTTP响应的功能。
+ *
+ * 支持的功能:
+ * 1. 生成和发送错误页面
+ * 2. 处理重定向响应
+ * 3. 生成刷新页面
+ * 4. 自定义错误页面
+ * 5. 处理不同HTTP状态码的响应
+ * 6. 支持MSIE和Chrome友好的错误页面
+ * 7. 添加自定义HTTP头部
+ * 8. 处理内部重定向
+ * 9. 生成目录列表页面
+ * 10. 处理认证失败的响应
+ *
+ * 支持的指令:
+ * - error_page: 定义错误页面
+ *   语法: error_page code ... [=[response]] uri;
+ *   上下文: http, server, location, if in location
+ *
+ * - recursive_error_pages: 启用错误页面的递归处理
+ *   语法: recursive_error_pages on|off;
+ *   默认值: recursive_error_pages off;
+ *   上下文: http, server, location
+ *
+ * - server_tokens: 控制在错误页面中是否显示nginx版本
+ *   语法: server_tokens on|off|build;
+ *   默认值: server_tokens on;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * - $status: HTTP响应状态码
+ * - $request_uri: 原始请求URI
+ * - $host: 请求头中的Host字段
+ *
+ * 使用注意点:
+ * 1. 自定义错误页面时注意保持页面简洁，避免过大的响应体
+ * 2. 使用内部重定向时要防止循环重定向
+ * 3. 在处理敏感错误时，避免泄露服务器信息
+ * 4. 合理使用server_tokens指令，在生产环境中建议关闭
+ * 5. 对于大量请求的场景，要注意错误页面生成对性能的影响
+ * 6. 使用recursive_error_pages时要谨慎，避免过度递归
+ * 7. 自定义错误页面时要考虑不同浏览器的兼容性
+ * 8. 对于重定向响应，注意设置正确的状态码（301、302等）
+ * 9. 在处理认证失败时，确保正确设置WWW-Authenticate头部
+ * 10. 定期检查和更新错误页面内容，确保信息的准确性和相关性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -15,9 +65,12 @@ static ngx_int_t ngx_http_send_error_page(ngx_http_request_t *r,
     ngx_http_err_page_t *err_page);
 static ngx_int_t ngx_http_send_special_response(ngx_http_request_t *r,
     ngx_http_core_loc_conf_t *clcf, ngx_uint_t err);
+
+// 发送刷新页面
 static ngx_int_t ngx_http_send_refresh(ngx_http_request_t *r);
 
 
+// 发送完整尾部
 static u_char ngx_http_error_full_tail[] =
 "<hr><center>" NGINX_VER "</center>" CRLF
 "</body>" CRLF

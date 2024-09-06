@@ -4,6 +4,34 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_file_cache.c
+ *
+ * 该文件实现了Nginx的HTTP文件缓存功能。
+ *
+ * 支持的功能:
+ * 1. 文件缓存的创建、读取和更新
+ * 2. 缓存键的生成和管理
+ * 3. 缓存锁机制，防止并发访问冲突
+ * 4. 缓存元数据的处理
+ * 5. 缓存清理和过期处理
+ * 6. 缓存状态的统计和报告
+ * 7. 支持条件性缓存和部分内容缓存
+ * 8. 缓存预热和后台更新
+ *
+ * 使用注意点:
+ * 1. 合理配置缓存路径和大小，避免磁盘空间耗尽
+ * 2. 注意缓存键的唯一性，防止缓存碰撞
+ * 3. 适当设置缓存锁超时时间，避免长时间阻塞
+ * 4. 定期进行缓存清理，保持缓存效率
+ * 5. 监控缓存使用情况，及时调整缓存策略
+ * 6. 考虑使用缓存分片来提高并发性能
+ * 7. 注意处理缓存文件的权限问题
+ * 8. 在高并发场景下，可能需要调整文件描述符限制
+ * 9. 谨慎使用缓存预热功能，避免过度消耗系统资源
+ * 10. 定期检查和更新缓存配置，以适应变化的访问模式
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -11,60 +39,416 @@
 #include <ngx_md5.h>
 
 
+/*
+ * 函数: ngx_http_file_cache_lock
+ * 功能: 尝试为文件缓存获取锁
+ * 参数:
+ *   r: HTTP请求结构体指针
+ *   c: 缓存结构体指针（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t类型，表示锁定操作的结果
+ */
 static ngx_int_t ngx_http_file_cache_lock(ngx_http_request_t *r,
     ngx_http_cache_t *c);
+/*
+ * 函数: ngx_http_file_cache_lock_wait_handler
+ * 功能: 处理文件缓存锁等待事件
+ * 参数:
+ *   ev: 事件结构体指针，包含了等待锁的相关信息
+ * 描述:
+ *   当文件缓存锁无法立即获取时，此函数作为回调被调用。
+ *   它负责处理等待锁的过程，可能包括重试获取锁或超时处理。
+ */
 static void ngx_http_file_cache_lock_wait_handler(ngx_event_t *ev);
+/*
+ * 函数: ngx_http_file_cache_lock_wait
+ * 功能: 等待文件缓存锁
+ * 参数:
+ *   r: HTTP请求结构体指针
+ *   c: 缓存结构体指针（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t类型，表示等待操作的结果
+ * 描述:
+ *   当文件缓存锁无法立即获取时，此函数被调用来处理等待过程。
+ *   它可能会设置定时器或执行其他等待逻辑，直到锁可用或超时。
+ */
 static ngx_int_t ngx_http_file_cache_lock_wait(ngx_http_request_t *r,
     ngx_http_cache_t *c);
+/*
+ * 函数: ngx_http_file_cache_read
+ * 功能: 从文件缓存中读取数据
+ * 参数:
+ *   r: HTTP请求结构体指针
+ *   c: 缓存结构体指针（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t类型，表示读取操作的结果
+ * 描述:
+ *   此函数负责从文件缓存中读取数据。它可能会处理缓存命中、
+ *   缓存未命中或需要更新缓存等情况。函数可能会执行实际的
+ *   文件读取操作，或者设置相应的标志以指示后续处理。
+ */
 static ngx_int_t ngx_http_file_cache_read(ngx_http_request_t *r,
     ngx_http_cache_t *c);
+/*
+ * 函数: ngx_http_file_cache_aio_read
+ * 功能: 异步读取文件缓存
+ * 参数:
+ *   r: HTTP请求结构体指针
+ *   c: 缓存结构体指针（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ssize_t类型，表示异步读取的字节数或错误码
+ * 描述:
+ *   此函数用于异步读取文件缓存数据。它可能会启动一个异步I/O操作，
+ *   并立即返回，而不等待I/O完成。实际的数据读取可能在后台进行，
+ *   完成后通过回调或事件通知机制通知主程序。
+ */
 static ssize_t ngx_http_file_cache_aio_read(ngx_http_request_t *r,
     ngx_http_cache_t *c);
 #if (NGX_HAVE_FILE_AIO)
+/*
+ * 函数: ngx_http_cache_aio_event_handler
+ * 功能: 处理异步I/O缓存事件
+ * 参数:
+ *   ev: 事件结构体指针，包含了异步I/O操作的相关信息
+ * 描述:
+ *   此函数作为异步I/O操作的回调函数，在异步读取文件缓存完成时被调用。
+ *   它负责处理异步I/O完成后的逻辑，可能包括更新缓存状态、处理读取的数据
+ *   或触发后续的请求处理流程。
+ */
 static void ngx_http_cache_aio_event_handler(ngx_event_t *ev);
 #endif
 #if (NGX_THREADS)
+/*
+ * 函数: ngx_http_cache_thread_handler
+ * 功能: 处理缓存相关的线程任务
+ * 参数:
+ *   task: 线程任务结构体指针，包含任务相关信息
+ *   file: 文件结构体指针，可能用于文件操作（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t类型，表示线程任务处理的结果
+ * 描述:
+ *   此函数作为线程任务的处理函数，用于在单独的线程中执行缓存相关的操作。
+ *   它可能会处理如读取缓存文件、更新缓存数据等任务，以提高主线程的性能。
+ */
 static ngx_int_t ngx_http_cache_thread_handler(ngx_thread_task_t *task,
     ngx_file_t *file);
+/*
+ * 函数: ngx_http_cache_thread_event_handler
+ * 功能: 处理缓存线程事件
+ * 参数:
+ *   ev: 事件结构体指针，包含了线程事件的相关信息
+ * 描述:
+ *   此函数作为缓存线程事件的处理函数。当缓存相关的线程任务完成时，
+ *   会触发此事件处理器。它可能负责处理线程任务的结果，更新缓存状态，
+ *   或者触发后续的请求处理流程。这个函数在多线程环境下用于协调
+ *   主线程和工作线程之间的交互，确保缓存操作的正确性和效率。
+ */
 static void ngx_http_cache_thread_event_handler(ngx_event_t *ev);
 #endif
+/*
+ * 函数: ngx_http_file_cache_exists
+ * 功能: 检查文件缓存是否存在
+ * 参数:
+ *   cache: 文件缓存结构体指针，包含缓存的配置和状态信息
+ *   c: 缓存结构体指针（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t类型，表示缓存是否存在或操作结果
+ * 描述:
+ *   此函数用于检查指定的文件缓存是否存在。它可能会检查缓存文件的存在性，
+ *   验证缓存的有效性，或者执行其他相关的检查操作。这个函数在处理HTTP请求时
+ *   用于决定是否可以使用现有的缓存数据来响应请求。
+ */
 static ngx_int_t ngx_http_file_cache_exists(ngx_http_file_cache_t *cache,
     ngx_http_cache_t *c);
+/*
+ * 函数: ngx_http_file_cache_name
+ * 功能: 生成文件缓存的名称
+ * 参数:
+ *   r: HTTP请求结构体指针，包含请求的相关信息
+ *   path: 路径结构体指针，用于存储生成的缓存文件路径（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t类型，表示生成缓存名称的结果
+ * 描述:
+ *   此函数用于为HTTP请求生成对应的文件缓存名称。它可能会基于请求的URL、
+ *   头部信息或其他相关参数来构造一个唯一的缓存文件名。这个函数在
+ *   创建新的缓存文件或查找现有缓存时使用，确保每个缓存项都有一个
+ *   唯一的标识符。
+ */
 static ngx_int_t ngx_http_file_cache_name(ngx_http_request_t *r,
     ngx_path_t *path);
+/*
+* 函数: ngx_http_file_cache_lookup
+* 功能: 在文件缓存中查找指定的键
+* 参数:
+*   cache: 文件缓存结构体指针，包含缓存的配置和状态信息
+*   key: 要查找的缓存键
+* 返回值: ngx_http_file_cache_node_t 指针，指向找到的缓存节点，如果未找到则返回 NULL
+* 描述:
+*   此函数在给定的文件缓存中查找与指定键匹配的缓存节点。
+*   它可能会使用红黑树或其他数据结构来快速定位缓存项。
+*   这个函数在处理HTTP请求时用于检查是否存在可用的缓存数据。
+*/
 static ngx_http_file_cache_node_t *
     ngx_http_file_cache_lookup(ngx_http_file_cache_t *cache, u_char *key);
+/*
+ * 函数: ngx_http_file_cache_rbtree_insert_value
+ * 功能: 在文件缓存的红黑树中插入新节点
+ * 参数:
+ *   temp: 临时节点，用于比较和定位插入位置
+ *   node: 要插入的新节点
+ *   sentinel: 哨兵节点，用于标识树的边界
+ * 返回值: 无
+ * 描述:
+ *   此函数用于在文件缓存的红黑树中插入新的缓存节点。它实现了红黑树的插入算法，
+ *   确保树的平衡性和查找效率。这个函数在添加新的缓存项到缓存系统时被调用，
+ *   有助于维护缓存的快速查找结构。
+ */
 static void ngx_http_file_cache_rbtree_insert_value(ngx_rbtree_node_t *temp,
     ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
+/*
+ * 函数: ngx_http_file_cache_vary
+ * 功能: 处理文件缓存的Vary头部
+ * 参数:
+ *   r: HTTP请求结构体指针，包含请求的相关信息
+ *   vary: Vary头部的值
+ *   len: Vary头部值的长度（在函数定义中未显示，但可能在函数体中使用）
+ *   hash: 用于存储计算得到的哈希值（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: 无
+ * 描述:
+ *   此函数用于处理HTTP响应中的Vary头部，这对于缓存变体很重要。
+ *   它可能会解析Vary头部的值，计算相应的哈希值，并更新缓存键。
+ *   这有助于确保针对不同的Vary条件正确地存储和检索缓存内容。
+ */
 static void ngx_http_file_cache_vary(ngx_http_request_t *r, u_char *vary,
     size_t len, u_char *hash);
+/*
+ * 函数: ngx_http_file_cache_vary_header
+ * 功能: 处理文件缓存的Vary头部
+ * 参数:
+ *   r: HTTP请求结构体指针，包含请求的相关信息
+ *   md5: MD5上下文指针，用于计算Vary头部的哈希值
+ *   name: 头部名称的字符串指针
+ * 返回值: 无
+ * 描述:
+ *   此函数用于处理特定的Vary头部。它可能会从请求中提取相应的头部值，
+ *   并将其添加到MD5哈希计算中。这有助于为不同的Vary条件生成唯一的缓存键，
+ *   确保正确地存储和检索缓存内容的变体。
+ */
 static void ngx_http_file_cache_vary_header(ngx_http_request_t *r,
     ngx_md5_t *md5, ngx_str_t *name);
+/*
+ * 函数: ngx_http_file_cache_reopen
+ * 功能: 重新打开文件缓存
+ * 参数:
+ *   r: HTTP请求结构体指针，包含请求的相关信息
+ *   c: 缓存结构体指针，包含缓存的相关信息（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t 类型，表示操作的结果
+ * 描述:
+ *   此函数用于重新打开文件缓存。在某些情况下，可能需要重新打开缓存文件，
+ *   例如当缓存文件被修改或需要更新时。这个函数可能会检查缓存文件的状态，
+ *   并在必要时重新打开或更新缓存。
+ */
 static ngx_int_t ngx_http_file_cache_reopen(ngx_http_request_t *r,
     ngx_http_cache_t *c);
+/*
+ * 函数: ngx_http_file_cache_update_variant
+ * 功能: 更新文件缓存的变体
+ * 参数:
+ *   r: HTTP请求结构体指针，包含请求的相关信息
+ *   c: 缓存结构体指针，包含缓存的相关信息（在函数定义中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t 类型，表示操作的结果
+ * 描述:
+ *   此函数用于更新文件缓存中的变体。当请求的内容有多个变体（例如，由于Vary头部）时，
+ *   这个函数可能会被调用来更新或创建特定变体的缓存。它可能涉及更新缓存元数据、
+ *   写入新的缓存文件，或者更新现有的缓存文件。
+ */
 static ngx_int_t ngx_http_file_cache_update_variant(ngx_http_request_t *r,
     ngx_http_cache_t *c);
+/*
+ * 函数: ngx_http_file_cache_cleanup
+ * 功能: 清理文件缓存
+ * 参数:
+ *   data: 指向需要清理的数据的指针
+ * 返回值: 无
+ * 描述:
+ *   此函数用于清理文件缓存相关的资源。它可能会被调用来释放内存、
+ *   关闭文件句柄或执行其他必要的清理操作，以确保在不再需要缓存时
+ *   正确地释放所有相关资源。这有助于防止内存泄漏和其他资源问题。
+ */
 static void ngx_http_file_cache_cleanup(void *data);
+/*
+ * 函数: ngx_http_file_cache_forced_expire
+ * 功能: 强制过期文件缓存中的条目
+ * 参数:
+ *   cache: 指向 ngx_http_file_cache_t 结构的指针，表示要操作的文件缓存
+ * 返回值: time_t 类型，表示下一次需要执行强制过期的时间
+ * 描述:
+ *   此函数用于强制使文件缓存中的某些条目过期。
+ *   它可能会遍历缓存中的条目，根据特定的规则（如缓存大小限制或时间限制）
+ *   来决定哪些条目需要被强制标记为过期。
+ *   这有助于维护缓存的新鲜度和控制缓存的大小。
+ *   函数返回下一次需要执行此操作的时间，以便调度后续的强制过期操作。
+ */
 static time_t ngx_http_file_cache_forced_expire(ngx_http_file_cache_t *cache);
+/*
+ * 函数: ngx_http_file_cache_expire
+ * 功能: 使文件缓存中的条目过期
+ * 参数:
+ *   cache: 指向 ngx_http_file_cache_t 结构的指针，表示要操作的文件缓存
+ * 返回值: time_t 类型，表示下一次需要执行过期操作的时间
+ * 描述:
+ *   此函数用于处理文件缓存中条目的过期。它可能会遍历缓存中的条目，
+ *   检查它们的过期时间，并将过期的条目标记为无效或从缓存中移除。
+ *   这有助于维护缓存的新鲜度，确保缓存中的内容是最新的。
+ *   函数返回下一次需要执行此操作的时间，以便调度后续的过期检查。
+ */
 static time_t ngx_http_file_cache_expire(ngx_http_file_cache_t *cache);
+/*
+ * 函数: ngx_http_file_cache_delete
+ * 功能: 从文件缓存中删除指定的缓存项
+ * 参数:
+ *   cache: 指向 ngx_http_file_cache_t 结构的指针，表示要操作的文件缓存
+ *   q: 指向 ngx_queue_t 结构的指针，可能表示要删除的缓存项在队列中的位置
+ *   name: 指向 u_char 类型的指针，可能表示要删除的缓存项的名称或标识符
+ * 返回值: 无
+ * 描述:
+ *   此函数用于从文件缓存中删除特定的缓存项。它可能会执行以下操作：
+ *   1. 从缓存数据结构中移除相关条目
+ *   2. 删除对应的缓存文件
+ *   3. 更新缓存统计信息
+ *   4. 释放相关的内存资源
+ *   这个函数对于维护缓存的大小和保持缓存的新鲜度非常重要。
+ */
 static void ngx_http_file_cache_delete(ngx_http_file_cache_t *cache,
     ngx_queue_t *q, u_char *name);
+/*
+ * 函数: ngx_http_file_cache_loader_sleep
+ * 功能: 使文件缓存加载器进入睡眠状态
+ * 参数:
+ *   cache: 指向 ngx_http_file_cache_t 结构的指针，表示要操作的文件缓存
+ * 返回值: 无
+ * 描述:
+ *   此函数用于控制文件缓存加载器的睡眠行为。它可能会执行以下操作：
+ *   1. 根据缓存的当前状态和配置，计算适当的睡眠时间
+ *   2. 使加载器进程进入睡眠状态，以避免过度消耗系统资源
+ *   3. 在睡眠结束后，可能会更新一些统计信息或状态标志
+ *   这个函数对于优化缓存加载过程和控制系统资源使用非常重要。
+ */
 static void ngx_http_file_cache_loader_sleep(ngx_http_file_cache_t *cache);
+/*
+ * 函数: ngx_http_file_cache_noop
+ * 功能: 文件缓存的空操作函数
+ * 参数:
+ *   ctx: 指向 ngx_tree_ctx_t 结构的指针，表示树遍历的上下文
+ *   path: 指向 ngx_str_t 结构的指针，表示当前处理的路径
+ * 返回值: ngx_int_t 类型，表示操作的结果
+ * 描述:
+ *   这是一个空操作函数，用于文件缓存系统中可能需要但不执行实际操作的场景。
+ *   它可能被用作占位符或默认处理器，以保持接口的一致性。
+ *   函数通常会直接返回一个表示成功的值，而不进行任何实际操作。
+ */
 static ngx_int_t ngx_http_file_cache_noop(ngx_tree_ctx_t *ctx,
     ngx_str_t *path);
+/*
+ * 函数: ngx_http_file_cache_manage_file
+ * 功能: 管理文件缓存中的单个文件
+ * 参数:
+ *   ctx: 指向 ngx_tree_ctx_t 结构的指针，表示树遍历的上下文
+ *   path: 指向 ngx_str_t 结构的指针，表示当前处理的文件路径（在函数签名中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t 类型，表示操作的结果
+ * 描述:
+ *   此函数用于管理文件缓存中的单个文件。它可能执行以下操作：
+ *   1. 检查文件的状态（如修改时间、大小等）
+ *   2. 决定是否需要更新或删除文件
+ *   3. 更新缓存元数据
+ *   4. 处理过期的缓存文件
+ *   这个函数在维护缓存系统的整体状态和性能方面起着关键作用。
+ */
 static ngx_int_t ngx_http_file_cache_manage_file(ngx_tree_ctx_t *ctx,
     ngx_str_t *path);
+/*
+ * 函数: ngx_http_file_cache_manage_directory
+ * 功能: 管理文件缓存中的目录
+ * 参数:
+ *   ctx: 指向 ngx_tree_ctx_t 结构的指针，表示树遍历的上下文
+ *   path: 指向 ngx_str_t 结构的指针，表示当前处理的目录路径（在函数签名中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t 类型，表示操作的结果
+ * 描述:
+ *   此函数用于管理文件缓存中的目录。它可能执行以下操作：
+ *   1. 遍历目录中的文件和子目录
+ *   2. 对目录中的文件进行清理或整理
+ *   3. 更新目录的元数据
+ *   4. 处理过期的缓存目录
+ *   这个函数在维护缓存系统的目录结构和整体组织方面起着重要作用。
+ */
 static ngx_int_t ngx_http_file_cache_manage_directory(ngx_tree_ctx_t *ctx,
     ngx_str_t *path);
+/*
+ * 函数: ngx_http_file_cache_add_file
+ * 功能: 向文件缓存中添加新文件
+ * 参数:
+ *   ctx: 指向 ngx_tree_ctx_t 结构的指针，表示树遍历的上下文
+ *   path: 指向 ngx_str_t 结构的指针，表示要添加的文件路径（在函数签名中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t 类型，表示操作的结果
+ * 描述:
+ *   此函数用于向文件缓存系统中添加新的文件。它可能执行以下操作：
+ *   1. 验证文件的有效性
+ *   2. 创建文件的缓存条目
+ *   3. 更新缓存元数据
+ *   4. 处理可能的冲突或重复
+ *   这个函数在扩展和维护缓存内容方面起着重要作用。
+ */
 static ngx_int_t ngx_http_file_cache_add_file(ngx_tree_ctx_t *ctx,
     ngx_str_t *path);
+/*
+ * 函数: ngx_http_file_cache_add
+ * 功能: 向文件缓存中添加新的缓存项
+ * 参数:
+ *   cache: 指向 ngx_http_file_cache_t 结构的指针，表示文件缓存
+ *   c: 指向 ngx_http_cache_t 结构的指针，表示要添加的缓存项（在函数签名中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t 类型，表示操作的结果
+ * 描述:
+ *   此函数用于向文件缓存系统中添加新的缓存项。它可能执行以下操作：
+ *   1. 为新的缓存项分配空间
+ *   2. 初始化缓存项的元数据
+ *   3. 将缓存项添加到缓存数据结构中
+ *   4. 更新缓存统计信息
+ *   这个函数在扩展缓存内容和管理缓存系统的容量方面起着关键作用。
+ */
 static ngx_int_t ngx_http_file_cache_add(ngx_http_file_cache_t *cache,
     ngx_http_cache_t *c);
+/*
+ * 函数: ngx_http_file_cache_delete_file
+ * 功能: 从文件缓存中删除指定文件
+ * 参数:
+ *   ctx: 指向 ngx_tree_ctx_t 结构的指针，表示树遍历的上下文
+ *   path: 指向 ngx_str_t 结构的指针，表示要删除的文件路径（在函数签名中未显示，但可能在函数体中使用）
+ * 返回值: ngx_int_t 类型，表示操作的结果
+ * 描述:
+ *   此函数用于从文件缓存系统中删除指定的文件。它可能执行以下操作：
+ *   1. 验证文件的存在性和可删除性
+ *   2. 从缓存数据结构中移除文件的引用
+ *   3. 实际删除文件系统中的文件
+ *   4. 更新缓存统计信息
+ *   这个函数在维护缓存系统的清洁度和管理存储空间方面起着重要作用。
+ */
 static ngx_int_t ngx_http_file_cache_delete_file(ngx_tree_ctx_t *ctx,
     ngx_str_t *path);
+/*
+ * 函数: ngx_http_file_cache_set_watermark
+ * 功能: 设置文件缓存的水位线
+ * 参数:
+ *   cache: 指向 ngx_http_file_cache_t 结构的指针，表示文件缓存
+ * 返回值: 无
+ * 描述:
+ *   此函数用于设置文件缓存系统的水位线。水位线通常用于:
+ *   1. 控制缓存的使用量
+ *   2. 触发缓存清理或扩展操作
+ *   3. 优化缓存性能和资源利用
+ *   设置适当的水位线对于维护缓存系统的效率和可靠性非常重要。
+ */
 static void ngx_http_file_cache_set_watermark(ngx_http_file_cache_t *cache);
 
 
+/*
+ * HTTP缓存状态数组
+ * 此数组定义了不同的HTTP缓存状态，每个元素都是一个ngx_str_t类型，表示一个状态字符串
+ * 数组索引对应于不同的缓存状态，如MISS、BYPASS等
+ * 这些状态用于指示缓存操作的结果，对于调试和监控缓存行为非常有用
+ */
 ngx_str_t  ngx_http_cache_status[] = {
     ngx_string("MISS"),
     ngx_string("BYPASS"),
@@ -76,6 +460,14 @@ ngx_str_t  ngx_http_cache_status[] = {
 };
 
 
+/*
+ * HTTP文件缓存键前缀
+ * 这个静态数组定义了HTTP文件缓存键的前缀
+ * 包含以下字符:
+ * - LF (换行符)
+ * - "KEY: " (字符串 "KEY: ")
+ * 这个前缀用于在缓存文件中标识和分隔缓存键信息
+ */
 static u_char  ngx_http_file_cache_key[] = { LF, 'K', 'E', 'Y', ':', ' ' };
 
 
@@ -2721,7 +3113,14 @@ ngx_http_file_cache_set_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_OK;
 }
 
-
+/*
+ * 设置文件缓存有效期的配置处理函数
+ * 
+ * @param cf 配置结构体指针
+ * @param cmd 命令结构体指针
+ * @param conf 配置指针
+ * @return 成功返回NGX_CONF_OK，失败返回NGX_CONF_ERROR
+ */
 char *
 ngx_http_file_cache_valid_set_slot(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf)

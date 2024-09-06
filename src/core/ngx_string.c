@@ -4,6 +4,32 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/**
+ * @file ngx_string.c
+ * @brief Nginx字符串处理模块
+ *
+ * 本文件实现了Nginx中的字符串处理相关功能。
+ *
+ * 主要功能:
+ * - 字符串转换为小写
+ * - 字符串长度计算
+ * - 字符串复制
+ * - 数字格式化为字符串
+ * - Base64编解码
+ * - URL编解码
+ * - JSON字符串转义
+ * - 字符串比较和查找
+ *
+ * 使用注意:
+ * 1. 注意字符串操作时的缓冲区大小，防止溢出
+ * 2. 使用ngx_str_t结构体时，确保正确设置长度
+ * 3. 对于可能包含非ASCII字符的字符串，需考虑编码问题
+ * 4. Base64和URL编解码时注意原字符串和目标缓冲区的大小关系
+ * 5. 在处理用户输入的字符串时，注意进行安全检查，预防注入攻击
+ * 6. 使用字符串比较函数时，注意区分大小写敏感和不敏感的版本
+ * 7. 在多线程环境下使用字符串函数时，确保线程安全
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -1080,25 +1106,32 @@ ngx_atoof(u_char *line, size_t n)
 {
     off_t  value, cutoff, cutlim;
 
+    // 如果输入字符串长度为0，返回错误
     if (n == 0) {
         return NGX_ERROR;
     }
 
+    // 计算溢出检查的阈值
     cutoff = NGX_MAX_OFF_T_VALUE / 10;
     cutlim = NGX_MAX_OFF_T_VALUE % 10;
 
+    // 遍历输入字符串的每个字符
     for (value = 0; n--; line++) {
+        // 检查字符是否为数字
         if (*line < '0' || *line > '9') {
             return NGX_ERROR;
         }
 
+        // 检查是否会发生溢出
         if (value >= cutoff && (value > cutoff || *line - '0' > cutlim)) {
             return NGX_ERROR;
         }
 
+        // 将当前数字添加到结果中
         value = value * 10 + (*line - '0');
     }
 
+    // 返回转换后的数值
     return value;
 }
 

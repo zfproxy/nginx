@@ -1,0 +1,49 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**", // 项目目录
+                "/usr/local/include", // 常见的系统头文件路径
+                "/usr/include", // 系统头文件路径
+                "/usr/src/nginx/src", // Nginx 源代码路径
+                "/usr/src/nginx/objs" // Nginx 编译后生成的头文件路径（如果有）
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc", // 指定编译器路径
+            "cStandard": "c11", // C 标准
+            "cppStandard": "c++17", // C++ 标准（如果需要）
+            "intelliSenseMode": "linux-gcc-x64", // IntelliSense 模式
+            "browse": {
+                "path": [
+                    "/usr/src/nginx/src", // Nginx 源代码目录
+                    "/usr/include",
+                    "/usr/local/include"
+                ],
+                "limitSymbolsToIncludedHeaders": true,
+                "databaseFilename": ""
+            }
+        },
+        {
+            "name": "Windows",
+            "includePath": [
+                "${workspaceFolder}/**", // 项目目录
+                "${workspaceFolder}/src", // Nginx 源代码路径
+                "${workspaceFolder}/objs" // Nginx 编译后生成的头文件路径（如果有）
+            ],
+            "defines": [],
+            "compilerPath": "cl.exe", // 指定编译器路径
+            "cStandard": "c11", // C 标准
+            "cppStandard": "c++17", // C++ 标准（如果需要）
+            "intelliSenseMode": "windows-msvc-x64", // IntelliSense 模式
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/src" // Nginx 源代码目录
+                ],
+                "limitSymbolsToIncludedHeaders": true,
+                "databaseFilename": ""
+            }
+        }
+    ],
+    "version": 4
+}

@@ -4,6 +4,37 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_mail_auth_http_module.c
+ *
+ * 该模块实现了邮件服务器的HTTP认证功能。
+ *
+ * 支持的功能:
+ * 1. 通过HTTP请求进行用户认证
+ * 2. 支持自定义HTTP请求头
+ * 3. 支持SSL客户端证书传递
+ * 4. 可配置超时时间
+ *
+ * 支持的指令:
+ * - auth_http: 设置HTTP认证服务器地址
+ * - auth_http_timeout: 设置HTTP认证请求超时时间
+ * - auth_http_header: 添加自定义HTTP请求头
+ * - auth_http_pass_client_cert: 是否传递客户端SSL证书信息
+ *
+ * 支持的变量:
+ * - $remote_addr: 客户端IP地址
+ * - $client_cert: 客户端SSL证书信息
+ * - $protocol: 使用的协议(IMAP/POP3/SMTP)
+ * - $login: 用户登录名
+ * - $passwd: 用户密码
+ *
+ * 使用注意点:
+ * 1. 确保HTTP认证服务器能够正确响应认证请求
+ * 2. 合理设置超时时间，避免认证过程过长影响用户体验
+ * 3. 谨慎使用auth_http_pass_client_cert，确保SSL证书信息的安全传输
+ * 4. 自定义HTTP头时注意不要与系统预定义头冲突
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

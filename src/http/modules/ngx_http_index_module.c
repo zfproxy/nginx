@@ -4,6 +4,26 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_index_module.c
+ *
+ * 该模块实现了处理以斜杠结尾的请求的索引文件功能。
+ *
+ * 支持的功能:
+ * - 配置多个索引文件
+ * - 支持变量作为索引文件名
+ * - 按顺序检查索引文件是否存在
+ * - 自动重定向到带斜杠的 URI
+ *
+ * 支持的指令:
+ * - index: 定义索引文件
+ *   语法: index file ...;
+ *   默认值: index index.html;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * 该模块不提供任何变量。
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>

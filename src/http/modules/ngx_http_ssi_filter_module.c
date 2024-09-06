@@ -4,6 +4,59 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_http_ssi_filter_module.c
+ *
+ * 该模块实现了服务器端包含(SSI)功能。
+ *
+ * 支持的功能:
+ * - 解析和处理HTML文件中的SSI指令
+ * - 支持条件语句(if/else/elif)
+ * - 支持变量替换
+ * - 支持包含其他文件
+ * - 支持执行外部命令
+ * - 支持设置变量
+ *
+ * 支持的指令:
+ * - ssi: 启用或禁用SSI处理
+ *   语法: ssi on|off;
+ *   默认值: ssi off;
+ *   上下文: http, server, location
+ *
+ * - ssi_silent_errors: 控制是否在输出中显示SSI错误
+ *   语法: ssi_silent_errors on|off;
+ *   默认值: ssi_silent_errors off;
+ *   上下文: http, server, location
+ *
+ * - ssi_types: 指定哪些MIME类型应该被处理为SSI
+ *   语法: ssi_types mime-type ...;
+ *   默认值: ssi_types text/html;
+ *   上下文: http, server, location
+ *
+ * - ssi_value_length: 设置SSI命令处理结果的最大长度
+ *   语法: ssi_value_length length;
+ *   默认值: ssi_value_length 256;
+ *   上下文: http, server, location
+ *
+ * 支持的变量:
+ * - $date_local: 服务器的本地时间
+ * - $date_gmt: 服务器的GMT时间
+ * - $document_name: 当前文档的名称
+ * - $document_uri: 当前文档的URI
+ * - $query_string_unescaped: 未转义的查询字符串
+ * - $request_uri: 完整的请求URI
+ *
+ * 使用注意点:
+ * 1. SSI处理可能会增加服务器负载，应谨慎使用
+ * 2. 对于静态内容，考虑使用其他缓存机制来提高性能
+ * 3. 注意控制SSI指令的访问权限，防止安全风险
+ * 4. 合理设置ssi_value_length以避免缓冲区溢出
+ * 5. 使用ssi_types指令限制SSI处理的文件类型
+ * 6. 在生产环境中，建议开启ssi_silent_errors以隐藏错误信息
+ * 7. 避免在SSI中执行耗时的外部命令，可能会影响响应时间
+ * 8. 定期检查和更新包含的文件，确保内容的准确性和安全性
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

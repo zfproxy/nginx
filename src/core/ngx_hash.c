@@ -4,6 +4,36 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_hash.c
+ *
+ * 本文件包含Nginx哈希表数据结构的实现。
+ *
+ * 主要功能:
+ * 1. 哈希表查找 (ngx_hash_find)
+ * 2. 通配符哈希表查找 (ngx_hash_find_wc_head, ngx_hash_find_wc_tail)
+ * 3. 组合哈希表查找 (ngx_hash_find_combined)
+ * 4. 哈希表初始化 (ngx_hash_init)
+ * 5. 通配符哈希表初始化 (ngx_hash_wildcard_init)
+ * 6. 哈希键排序 (ngx_hash_key)
+ *
+ * 支持的操作:
+ * - 高效的哈希表查找
+ * - 支持前缀和后缀通配符匹配
+ * - 组合查找策略
+ * - 动态哈希表初始化
+ * - 自定义哈希函数
+ *
+ * 使用注意:
+ * - 确保在使用哈希表前正确初始化
+ * - 选择合适的哈希表大小以平衡性能和内存使用
+ * - 注意处理哈希冲突
+ * - 使用通配符哈希表时，注意匹配顺序和优先级
+ * - 在初始化哈希表时，需要提供排序后的键列表
+ * - 注意内存池的使用，它决定了哈希表的生命周期
+ * - 对于大规模数据，考虑使用其他更适合的数据结构
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>

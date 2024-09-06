@@ -5,18 +5,68 @@
  */
 
 
+/*
+ * ngx_http_chunked_filter_module.c
+ *
+ * 该模块实现了HTTP分块传输编码(chunked transfer encoding)的过滤功能。
+ *
+ * 支持的功能:
+ * 1. 将响应内容转换为分块传输编码格式
+ * 2. 自动添加分块头和尾部
+ * 3. 处理最后的0长度块和尾部头信息
+ * 4. 支持流式处理大型响应
+ *
+ * 支持的指令:
+ * 该模块不支持任何配置指令，其功能是自动启用的。
+ *
+ * 支持的变量:
+ * 该模块不提供任何变量。
+ *
+ * 使用注意点:
+ * 1. 该模块自动处理需要使用分块传输编码的响应
+ * 2. 当响应头中没有设置Content-Length时，通常会触发分块编码
+ * 3. 确保不要在已经开始分块传输的响应中再次设置Content-Length
+ * 4. 该模块会自动处理尾部头信息，无需手动添加
+ * 5. 在使用代理或缓存时，需要注意分块编码可能带来的影响
+ */
+
+
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
 
+/**
+ * @brief 分块传输编码过滤器的上下文结构
+ *
+ * 该结构用于存储分块传输编码过滤器的状态信息。
+ */
 typedef struct {
-    ngx_chain_t         *free;
-    ngx_chain_t         *busy;
+    ngx_chain_t         *free;  /**< 空闲缓冲区链表 */
+    ngx_chain_t         *busy;  /**< 正在使用的缓冲区链表 */
 } ngx_http_chunked_filter_ctx_t;
 
 
+/**
+ * @brief 初始化分块传输编码过滤器
+ *
+ * 该函数在Nginx配置阶段被调用，用于设置分块传输编码过滤器的初始状态。
+ *
+ * @param cf Nginx配置结构体指针
+ * @return NGX_OK 如果初始化成功，否则返回NGX_ERROR
+ */
 static ngx_int_t ngx_http_chunked_filter_init(ngx_conf_t *cf);
+
+/**
+ * @brief 创建分块传输编码的尾部数据
+ *
+ * 该函数用于生成分块传输编码的尾部数据，包括最后的0长度块和可能的尾部头信息。
+ *
+ * @param r HTTP请求结构体指针
+ * @param ctx 分块传输编码过滤器的上下文结构体指针
+ * @return 包含尾部数据的缓冲区链表，如果创建失败则返回NULL
+ */
 static ngx_chain_t *ngx_http_chunked_create_trailers(ngx_http_request_t *r,
     ngx_http_chunked_filter_ctx_t *ctx);
 
@@ -52,10 +102,32 @@ ngx_module_t  ngx_http_chunked_filter_module = {
 };
 
 
+/**
+ * @brief 下一个HTTP头部过滤器函数指针
+ *
+ * 这个静态变量用于存储下一个要执行的HTTP头部过滤器函数的指针。
+ * 在过滤器链中，它指向当前分块传输编码过滤器之后的下一个头部过滤器。
+ */
 static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
+
+/**
+ * @brief 下一个HTTP主体过滤器函数指针
+ *
+ * 这个静态变量用于存储下一个要执行的HTTP主体过滤器函数的指针。
+ * 在过滤器链中，它指向当前分块传输编码过滤器之后的下一个主体过滤器。
+ */
 static ngx_http_output_body_filter_pt    ngx_http_next_body_filter;
 
 
+/**
+ * @brief HTTP分块传输编码头部过滤器函数
+ *
+ * 这个静态函数是HTTP分块传输编码模块的头部过滤器。
+ * 它负责处理HTTP响应头，决定是否应用分块传输编码。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @return NGX_OK 如果处理成功，或者其他Nginx定义的错误码
+ */
 static ngx_int_t
 ngx_http_chunked_header_filter(ngx_http_request_t *r)
 {
@@ -101,6 +173,16 @@ ngx_http_chunked_header_filter(ngx_http_request_t *r)
 }
 
 
+/**
+ * @brief 分块传输编码的主体过滤器函数
+ *
+ * 该函数负责处理HTTP响应主体，将其转换为分块传输编码格式。
+ * 它会处理输入的数据链，根据需要添加分块大小和结束标记。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @param in 输入的数据链
+ * @return NGX_OK 如果处理成功，或者其他Nginx定义的错误码
+ */
 static ngx_int_t
 ngx_http_chunked_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {

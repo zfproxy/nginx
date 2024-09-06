@@ -4,6 +4,43 @@
  * Copyright (C) Nginx, Inc.
  */
 
+/*
+ * ngx_kqueue_module.c
+ *
+ * 该模块实现了基于kqueue的事件驱动机制，主要用于FreeBSD、macOS等BSD系统。
+ *
+ * 支持的功能:
+ * 1. 高效的I/O事件多路复用
+ * 2. 定时器事件处理
+ * 3. 信号事件处理
+ * 4. 用户自定义事件处理（如果系统支持EVFILT_USER）
+ * 5. 动态添加、删除和修改监听的文件描述符
+ *
+ * 支持的指令:
+ * - kqueue_changes: 设置单次可以处理的最大事件变更数
+ *   语法: kqueue_changes number;
+ *   默认值: 512
+ *   上下文: events
+ *
+ * - kqueue_events: 设置单次可以处理的最大事件数
+ *   语法: kqueue_events number;
+ *   默认值: 512
+ *   上下文: events
+ *
+ * 支持的变量:
+ * 本模块不直接定义变量，但其处理的事件可通过Nginx的标准变量访问。
+ *
+ * 使用注意点:
+ * 1. 确保系统支持kqueue（FreeBSD 4.1+, NetBSD 2.0+, OpenBSD 2.9+, macOS）
+ * 2. 合理配置kqueue_changes和kqueue_events值，以平衡性能和资源使用
+ * 3. 在高并发场景下，可能需要调整系统的文件描述符限制
+ * 4. 对于需要高精确度的定时器事件，kqueue提供了较好的支持
+ * 5. 在使用信号事件时，需要注意信号处理的相关限制
+ * 6. 如果系统支持EVFILT_USER，可以利用它实现自定义通知机制
+ * 7. 监控kqueue的性能指标，如等待时间、触发次数等，以便优化配置
+ * 8. 定期检查和更新Nginx，以获取kqueue模块的最新优化和bug修复
+ */
+
 
 #include <ngx_config.h>
 #include <ngx_core.h>
