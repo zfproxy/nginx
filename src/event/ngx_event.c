@@ -673,20 +673,38 @@ ngx_timer_signal_handler(int signo)
 #endif
 
 
+/**
+ * @brief 初始化事件处理模块
+ *
+ * @param cycle Nginx核心结构体指针
+ * @return ngx_int_t 成功返回NGX_OK，失败返回NGX_ERROR
+ *
+ * @details 该函数负责初始化Nginx的事件处理模块，包括以下主要任务:
+ * 1. 初始化accept mutex和相关设置
+ * 2. 初始化事件队列
+ * 3. 初始化定时器
+ * 4. 初始化各个事件模块
+ * 5. 为监听套接字分配连接结构体
+ * 6. 设置进程间通信机制
+ * 
+ * 该函数在worker进程启动时被调用，为事件处理做好准备工作。
+ */
 static ngx_int_t
 ngx_event_process_init(ngx_cycle_t *cycle)
 {
-    ngx_uint_t           m, i;
-    ngx_event_t         *rev, *wev;
-    ngx_listening_t     *ls;
-    ngx_connection_t    *c, *next, *old;
-    ngx_core_conf_t     *ccf;
-    ngx_event_conf_t    *ecf;
-    ngx_event_module_t  *module;
+    ngx_uint_t           m, i;                  // 循环计数器
+    ngx_event_t         *rev, *wev;             // 读事件和写事件指针
+    ngx_listening_t     *ls;                    // 监听套接字结构体指针
+    ngx_connection_t    *c, *next, *old;        // 连接结构体指针，用于遍历和操作连接
+    ngx_core_conf_t     *ccf;                   // 核心配置结构体指针
+    ngx_event_conf_t    *ecf;                   // 事件模块配置结构体指针
+    ngx_event_module_t  *module;                // 事件模块结构体指针
 
+    // 获取核心配置和事件模块配置
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
     ecf = ngx_event_get_conf(cycle->conf_ctx, ngx_event_core_module);
 
+    // 根据配置决定是否使用accept互斥锁
     if (ccf->master && ccf->worker_processes > 1 && ecf->accept_mutex) {
         ngx_use_accept_mutex = 1;
         ngx_accept_mutex_held = 0;
@@ -698,25 +716,24 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #if (NGX_WIN32)
 
-    /*
-     * disable accept mutex on win32 as it may cause deadlock if
-     * grabbed by a process which can't accept connections
-     */
-
+    // 在Windows上禁用accept互斥锁，因为可能导致死锁
     ngx_use_accept_mutex = 0;
 
 #endif
 
     ngx_use_exclusive_accept = 0;
 
+    // 初始化事件队列
     ngx_queue_init(&ngx_posted_accept_events);
     ngx_queue_init(&ngx_posted_next_events);
     ngx_queue_init(&ngx_posted_events);
 
+    // 初始化定时器
     if (ngx_event_timer_init(cycle->log) == NGX_ERROR) {
         return NGX_ERROR;
     }
 
+    // 初始化选定的事件模块
     for (m = 0; cycle->modules[m]; m++) {
         if (cycle->modules[m]->type != NGX_EVENT_MODULE) {
             continue;
@@ -729,7 +746,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         module = cycle->modules[m]->ctx;
 
         if (module->actions.init(cycle, ngx_timer_resolution) != NGX_OK) {
-            /* fatal */
+            // 初始化失败，退出
             exit(2);
         }
 
@@ -738,6 +755,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #if !(NGX_WIN32)
 
+    // 非Windows系统下的定时器信号处理
     if (ngx_timer_resolution && !(ngx_event_flags & NGX_USE_TIMER_EVENT)) {
         struct sigaction  sa;
         struct itimerval  itv;
@@ -763,6 +781,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         }
     }
 
+    // 获取文件描述符限制
     if (ngx_event_flags & NGX_USE_FD_EVENT) {
         struct rlimit  rlmt;
 
@@ -783,6 +802,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #else
 
+    // Windows下的定时器处理
     if (ngx_timer_resolution && !(ngx_event_flags & NGX_USE_TIMER_EVENT)) {
         ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
                       "the \"timer_resolution\" directive is not supported "
@@ -792,6 +812,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #endif
 
+    // 分配连接和事件数组
     cycle->connections =
         ngx_alloc(sizeof(ngx_connection_t) * cycle->connection_n, cycle->log);
     if (cycle->connections == NULL) {
@@ -806,6 +827,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
+    // 初始化读事件
     rev = cycle->read_events;
     for (i = 0; i < cycle->connection_n; i++) {
         rev[i].closed = 1;
@@ -818,11 +840,13 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
+    // 初始化写事件
     wev = cycle->write_events;
     for (i = 0; i < cycle->connection_n; i++) {
         wev[i].closed = 1;
     }
 
+    // 初始化空闲连接链表
     i = cycle->connection_n;
     next = NULL;
 
@@ -840,8 +864,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
     cycle->free_connections = next;
     cycle->free_connection_n = cycle->connection_n;
 
-    /* for each listening socket */
-
+    // 处理每个监听套接字
     ls = cycle->listening.elts;
     for (i = 0; i < cycle->listening.nelts; i++) {
 
@@ -877,11 +900,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         {
             if (ls[i].previous) {
 
-                /*
-                 * delete the old accept events that were bound to
-                 * the old cycle read events array
-                 */
-
+                // 删除旧的accept事件
                 old = ls[i].previous->connection;
 
                 if (ngx_del_event(old->read, NGX_READ_EVENT, NGX_CLOSE_EVENT)
@@ -896,6 +915,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #if (NGX_WIN32)
 
+        // Windows下的IOCP事件处理
         if (ngx_event_flags & NGX_USE_IOCP_EVENT) {
             ngx_iocp_conf_t  *iocpcf;
 
@@ -932,6 +952,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #else
 
+        // 非Windows系统的事件处理
         if (c->type == SOCK_STREAM) {
             rev->handler = ngx_event_accept;
 
@@ -954,13 +975,15 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         }
 
 #endif
-
+        // 如果使用accept互斥锁，则跳过当前循环
+        // 这是为了避免多个工作进程同时接受新连接，提高效率
         if (ngx_use_accept_mutex) {
             continue;
         }
 
 #if (NGX_HAVE_EPOLLEXCLUSIVE)
 
+        // 使用epoll独占模式
         if ((ngx_event_flags & NGX_USE_EPOLL_EVENT)
             && ccf->worker_processes > 1)
         {
@@ -977,6 +1000,12 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #endif
 
+        // 为读事件添加事件处理
+        // 参数说明:
+        // rev: 读事件结构体指针
+        // NGX_READ_EVENT: 表示这是一个读事件
+        // 0: 不设置特殊标志
+        // 如果添加事件失败，返回NGX_ERROR
         if (ngx_add_event(rev, NGX_READ_EVENT, 0) == NGX_ERROR) {
             return NGX_ERROR;
         }

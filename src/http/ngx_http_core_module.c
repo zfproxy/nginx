@@ -4648,7 +4648,16 @@ ngx_http_core_postconfiguration(ngx_conf_t *cf)
     return NGX_OK;
 }
 
-
+/**
+ * @brief 创建HTTP核心模块的主配置
+ *
+ * @param cf Nginx配置结构体指针
+ * @return 返回创建的主配置结构体指针，如果失败则返回NULL
+ *
+ * 此函数负责为HTTP核心模块创建主配置结构。它会分配内存，
+ * 初始化servers数组，并设置一些默认值。这个配置结构将用于
+ * 存储影响整个HTTP处理过程的核心设置。
+ */
 static void *
 ngx_http_core_create_main_conf(ngx_conf_t *cf)
 {
@@ -4678,7 +4687,20 @@ ngx_http_core_create_main_conf(ngx_conf_t *cf)
     return cmcf;
 }
 
-
+/**
+ * @brief 初始化HTTP核心模块的主配置
+ *
+ * @param cf Nginx配置结构体指针
+ * @param conf 指向主配置结构的指针
+ * @return 成功返回NGX_CONF_OK，失败返回错误信息字符串
+ *
+ * 此函数负责初始化HTTP核心模块的主配置。它设置默认值，
+ * 调整哈希表大小，并对齐内存。主要完成以下任务:
+ * 1. 初始化服务器名称哈希表的大小
+ * 2. 初始化变量哈希表的大小
+ * 3. 调整捕获数量（如果有的话）
+ * 这个函数在所有配置指令都被处理后调用，确保主配置结构中的所有必要设置都已正确初始化。
+ */
 static char *
 ngx_http_core_init_main_conf(ngx_conf_t *cf, void *conf)
 {
@@ -4711,7 +4733,21 @@ ngx_http_core_init_main_conf(ngx_conf_t *cf, void *conf)
     return NGX_CONF_OK;
 }
 
-
+/**
+ * @brief 创建HTTP服务器配置结构
+ *
+ * @param cf Nginx配置结构体指针
+ * @return 新创建的服务器配置结构指针，失败时返回NULL
+ *
+ * 此函数负责为每个HTTP服务器块创建一个新的配置结构。
+ * 它分配内存，初始化默认值，并设置一些基本的服务器级别配置。
+ * 主要完成以下任务:
+ * 1. 分配内存并初始化服务器配置结构
+ * 2. 初始化服务器名称数组
+ * 3. 设置未配置项的默认值
+ * 4. 记录配置文件名和行号
+ * 在Nginx配置解析过程中，对于每个server块，都会调用此函数来创建相应的配置结构。
+ */
 static void *
 ngx_http_core_create_srv_conf(ngx_conf_t *cf)
 {
@@ -4753,7 +4789,21 @@ ngx_http_core_create_srv_conf(ngx_conf_t *cf)
     return cscf;
 }
 
-
+/*
+ * 函数: ngx_http_core_merge_srv_conf
+ * 功能: 合并HTTP服务器配置
+ * 参数:
+ *   cf: Nginx配置结构体指针
+ *   parent: 父配置结构体指针
+ *   child: 子配置结构体指针
+ * 返回值: 成功返回NGX_CONF_OK，失败返回错误信息字符串
+ * 描述:
+ *   此函数负责合并父级和子级的HTTP服务器配置。
+ *   它会检查子配置中未设置的选项，并从父配置中继承相应的值。
+ *   同时，它还会进行一些配置项的验证和初始化工作。
+ *   这个过程确保了配置的层次结构和继承机制正常工作，
+ *   并为每个服务器块提供了完整的配置信息。
+ */
 static char *
 ngx_http_core_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 {
@@ -4957,7 +5007,20 @@ static ngx_hash_key_t  ngx_http_core_default_types[] = {
     { ngx_null_string, 0, NULL }
 };
 
-
+/**
+ * @brief 合并HTTP location配置
+ *
+ * @param cf Nginx配置结构体指针
+ * @param parent 父配置结构体指针
+ * @param child 子配置结构体指针
+ * @return 成功返回NGX_CONF_OK，失败返回错误信息字符串
+ *
+ * 此函数负责合并父级和子级的HTTP location配置。
+ * 它会检查子配置中未设置的选项，并从父配置中继承相应的值。
+ * 同时，它还会进行一些配置项的验证和初始化工作。
+ * 这个过程确保了配置的层次结构和继承机制正常工作，
+ * 并为每个location块提供了完整的配置信息。
+ */
 static char *
 ngx_http_core_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
@@ -5251,7 +5314,23 @@ ngx_http_core_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     return NGX_CONF_OK;
 }
 
-
+/**
+ * @brief 处理HTTP核心模块的listen指令
+ *
+ * @param cf Nginx配置结构体指针
+ * @param cmd 当前处理的命令结构体指针
+ * @param conf 指向当前模块配置结构的指针
+ * @return 成功返回NGX_CONF_OK，失败返回NGX_CONF_ERROR
+ *
+ * 此函数负责解析和处理HTTP核心模块的listen指令。
+ * 它会解析监听地址和端口，设置相关的监听选项，
+ * 并将解析后的监听配置添加到服务器配置中。
+ * 主要完成以下任务:
+ * 1. 解析listen指令的参数
+ * 2. 设置监听选项（如backlog、rcvbuf等）
+ * 3. 处理IPv6相关配置（如果支持）
+ * 4. 添加监听配置到服务器配置结构中
+ */
 static char *
 ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {

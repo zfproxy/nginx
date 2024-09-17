@@ -16,18 +16,6 @@
  * 4. 负载均衡
  * 5. 连接限制
  *
- * 支持的指令:
- * - accept_mutex
- * - accept_mutex_delay
- * - multi_accept
- * - use (选择事件模型)
- *
- * 相关变量:
- * - ngx_accept_disabled
- * - ngx_use_accept_mutex
- * - ngx_accept_mutex_held
- * - ngx_accept_mutex_delay
- *
  * 使用注意点:
  * 1. 合理配置worker进程数，避免过多竞争
  * 2. 适当调整accept_mutex_delay，平衡接受新连接和处理已有连接
@@ -49,6 +37,22 @@ static void ngx_reorder_accept_events(ngx_listening_t *ls);
 static void ngx_close_accepted_connection(ngx_connection_t *c);
 
 
+/**
+ * @brief 处理新连接接受事件的函数
+ *
+ * @param ev 触发接受事件的事件结构体指针
+ *
+ * @details 该函数负责接受新的客户端连接，并进行初始化设置。
+ * 它会处理以下任务：
+ * 1. 接受新的TCP连接
+ * 2. 为新连接分配ngx_connection_t结构体
+ * 3. 设置新连接的各种属性（如非阻塞模式）
+ * 4. 初始化新连接的读写事件
+ * 5. 调用监听对象的处理函数来进一步处理新连接
+ * 
+ * 该函数支持多个连接的批量接受（通过multi_accept配置）
+ * 并处理各种错误情况，如连接数达到上限、资源不足等。
+ */
 void
 ngx_event_accept(ngx_event_t *ev)
 {
@@ -66,7 +70,9 @@ ngx_event_accept(ngx_event_t *ev)
     static ngx_uint_t  use_accept4 = 1;
 #endif
 
+    // 检查事件是否超时
     if (ev->timedout) {
+        // 如果超时，重新启用accept事件
         if (ngx_enable_accept_events((ngx_cycle_t *) ngx_cycle) != NGX_OK) {
             return;
         }
@@ -74,8 +80,10 @@ ngx_event_accept(ngx_event_t *ev)
         ev->timedout = 0;
     }
 
+    // 获取事件核心模块的配置
     ecf = ngx_event_get_conf(ngx_cycle->conf_ctx, ngx_event_core_module);
 
+    // 设置可用连接数，除非使用kqueue
     if (!(ngx_event_flags & NGX_USE_KQUEUE_EVENT)) {
         ev->available = ecf->multi_accept;
     }
@@ -84,6 +92,7 @@ ngx_event_accept(ngx_event_t *ev)
     ls = lc->listening;
     ev->ready = 0;
 
+    // 记录调试日志
     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, ev->log, 0,
                    "accept on %V, ready: %d", &ls->addr_text, ev->available);
 
@@ -91,15 +100,18 @@ ngx_event_accept(ngx_event_t *ev)
         socklen = sizeof(ngx_sockaddr_t);
 
 #if (NGX_HAVE_ACCEPT4)
+        // 使用accept4函数（如果可用）
         if (use_accept4) {
             s = accept4(lc->fd, &sa.sockaddr, &socklen, SOCK_NONBLOCK);
         } else {
             s = accept(lc->fd, &sa.sockaddr, &socklen);
         }
 #else
+        // 使用标准accept函数
         s = accept(lc->fd, &sa.sockaddr, &socklen);
 #endif
 
+        // 处理accept失败的情况
         if (s == (ngx_socket_t) -1) {
             err = ngx_socket_errno;
 
@@ -141,6 +153,7 @@ ngx_event_accept(ngx_event_t *ev)
                 }
             }
 
+            // 处理文件描述符耗尽的情况
             if (err == NGX_EMFILE || err == NGX_ENFILE) {
                 if (ngx_disable_accept_events((ngx_cycle_t *) ngx_cycle, 1)
                     != NGX_OK)
@@ -165,12 +178,15 @@ ngx_event_accept(ngx_event_t *ev)
         }
 
 #if (NGX_STAT_STUB)
+        // 更新统计信息
         (void) ngx_atomic_fetch_add(ngx_stat_accepted, 1);
 #endif
 
+        // 计算是否需要暂时禁用accept
         ngx_accept_disabled = ngx_cycle->connection_n / 8
                               - ngx_cycle->free_connection_n;
 
+        // 获取新的连接结构
         c = ngx_get_connection(s, ev->log);
 
         if (c == NULL) {
@@ -185,19 +201,23 @@ ngx_event_accept(ngx_event_t *ev)
         c->type = SOCK_STREAM;
 
 #if (NGX_STAT_STUB)
+        // 更新活跃连接统计
         (void) ngx_atomic_fetch_add(ngx_stat_active, 1);
 #endif
 
+        // 为新连接创建内存池
         c->pool = ngx_create_pool(ls->pool_size, ev->log);
         if (c->pool == NULL) {
             ngx_close_accepted_connection(c);
             return;
         }
 
+        // 确保socklen不超过ngx_sockaddr_t的大小
         if (socklen > (socklen_t) sizeof(ngx_sockaddr_t)) {
             socklen = sizeof(ngx_sockaddr_t);
         }
 
+        // 为新连接分配sockaddr内存
         c->sockaddr = ngx_palloc(c->pool, socklen);
         if (c->sockaddr == NULL) {
             ngx_close_accepted_connection(c);
@@ -206,13 +226,14 @@ ngx_event_accept(ngx_event_t *ev)
 
         ngx_memcpy(c->sockaddr, &sa, socklen);
 
+        // 为新连接创建日志结构
         log = ngx_palloc(c->pool, sizeof(ngx_log_t));
         if (log == NULL) {
             ngx_close_accepted_connection(c);
             return;
         }
 
-        /* set a blocking mode for iocp and non-blocking mode for others */
+        // 设置连接的阻塞/非阻塞模式
 
         if (ngx_inherited_nonblocking) {
             if (ngx_event_flags & NGX_USE_IOCP_EVENT) {
@@ -237,6 +258,7 @@ ngx_event_accept(ngx_event_t *ev)
 
         *log = ls->log;
 
+        // 设置连接的I/O操作函数
         c->recv = ngx_recv;
         c->send = ngx_send;
         c->recv_chain = ngx_recv_chain;
@@ -251,11 +273,12 @@ ngx_event_accept(ngx_event_t *ev)
         c->local_socklen = ls->socklen;
 
 #if (NGX_HAVE_UNIX_DOMAIN)
+        // 对Unix域套接字进行特殊处理
         if (c->sockaddr->sa_family == AF_UNIX) {
             c->tcp_nopush = NGX_TCP_NOPUSH_DISABLED;
             c->tcp_nodelay = NGX_TCP_NODELAY_DISABLED;
 #if (NGX_SOLARIS)
-            /* Solaris's sendfilev() supports AF_NCA, AF_INET, and AF_INET6 */
+            // Solaris的sendfilev()支持AF_NCA、AF_INET和AF_INET6
             c->sendfile = 0;
 #endif
         }
@@ -266,10 +289,12 @@ ngx_event_accept(ngx_event_t *ev)
 
         wev->ready = 1;
 
+        // 对IOCP事件进行特殊处理
         if (ngx_event_flags & NGX_USE_IOCP_EVENT) {
             rev->ready = 1;
         }
 
+        // 处理延迟接受
         if (ev->deferred_accept) {
             rev->ready = 1;
 #if (NGX_HAVE_KQUEUE || NGX_HAVE_EPOLLRDHUP)
@@ -280,23 +305,17 @@ ngx_event_accept(ngx_event_t *ev)
         rev->log = log;
         wev->log = log;
 
-        /*
-         * TODO: MT: - ngx_atomic_fetch_add()
-         *             or protection by critical section or light mutex
-         *
-         * TODO: MP: - allocated in a shared memory
-         *           - ngx_atomic_fetch_add()
-         *             or protection by critical section or light mutex
-         */
-
+        // 分配连接ID
         c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
 
         c->start_time = ngx_current_msec;
 
 #if (NGX_STAT_STUB)
+        // 更新已处理连接统计
         (void) ngx_atomic_fetch_add(ngx_stat_handled, 1);
 #endif
 
+        // 设置客户端地址文本表示
         if (ls->addr_ntop) {
             c->addr_text.data = ngx_pnalloc(c->pool, ls->addr_text_max_len);
             if (c->addr_text.data == NULL) {
@@ -332,6 +351,7 @@ ngx_event_accept(ngx_event_t *ev)
         }
 #endif
 
+        // 将连接添加到事件处理机制中
         if (ngx_add_conn && (ngx_event_flags & NGX_USE_EPOLL_EVENT) == 0) {
             if (ngx_add_conn(c) == NGX_ERROR) {
                 ngx_close_accepted_connection(c);
@@ -342,6 +362,7 @@ ngx_event_accept(ngx_event_t *ev)
         log->data = NULL;
         log->handler = NULL;
 
+        // 调用监听对象的处理函数
         ls->handler(c);
 
         if (ngx_event_flags & NGX_USE_KQUEUE_EVENT) {
@@ -351,42 +372,62 @@ ngx_event_accept(ngx_event_t *ev)
     } while (ev->available);
 
 #if (NGX_HAVE_EPOLLEXCLUSIVE)
+    // 重新排序accept事件（仅适用于EPOLLEXCLUSIVE）
     ngx_reorder_accept_events(ls);
 #endif
 }
 
 
+/**
+ * @brief 尝试获取accept互斥锁
+ *
+ * @param cycle Nginx核心循环结构体指针
+ * @return NGX_OK 成功获取锁或处理完成
+ * @return NGX_ERROR 出现错误
+ *
+ * @details 该函数尝试获取accept互斥锁，用于控制多个worker进程接受新连接。
+ * 如果成功获取锁，它会启用accept事件；如果未能获取锁，它会禁用accept事件。
+ * 这个机制用于在多个worker进程之间平衡新连接的接受。
+ */
 ngx_int_t
 ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
 {
+    // 尝试获取accept互斥锁
     if (ngx_shmtx_trylock(&ngx_accept_mutex)) {
 
+        // 记录日志，表示成功获取锁
         ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                        "accept mutex locked");
 
+        // 如果已持有锁且没有待处理的accept事件，直接返回
         if (ngx_accept_mutex_held && ngx_accept_events == 0) {
             return NGX_OK;
         }
 
+        // 启用accept事件，如果失败则解锁并返回错误
         if (ngx_enable_accept_events(cycle) == NGX_ERROR) {
             ngx_shmtx_unlock(&ngx_accept_mutex);
             return NGX_ERROR;
         }
 
+        // 重置accept事件计数器，标记已持有锁
         ngx_accept_events = 0;
         ngx_accept_mutex_held = 1;
 
         return NGX_OK;
     }
 
+    // 记录日志，表示获取锁失败
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                    "accept mutex lock failed: %ui", ngx_accept_mutex_held);
 
+    // 如果之前持有锁，现在获取失败，需要禁用accept事件
     if (ngx_accept_mutex_held) {
         if (ngx_disable_accept_events(cycle, 0) == NGX_ERROR) {
             return NGX_ERROR;
         }
 
+        // 标记不再持有锁
         ngx_accept_mutex_held = 0;
     }
 
@@ -394,6 +435,16 @@ ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
 }
 
 
+/**
+ * @brief 启用所有监听套接字的接受事件
+ *
+ * @param cycle Nginx核心循环结构体指针
+ * @return NGX_OK 成功启用所有接受事件
+ * @return NGX_ERROR 启用过程中出现错误
+ *
+ * @details 该函数遍历所有的监听套接字，为每个尚未激活读事件的连接添加NGX_READ_EVENT。
+ * 这通常在获取accept mutex后调用，以允许工作进程开始接受新的连接。
+ */
 ngx_int_t
 ngx_enable_accept_events(ngx_cycle_t *cycle)
 {
