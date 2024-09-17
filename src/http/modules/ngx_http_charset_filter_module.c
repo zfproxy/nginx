@@ -656,35 +656,53 @@ ngx_http_charset_ctx(ngx_http_request_t *r, ngx_http_charset_t *charsets,
 }
 
 
+/*
+ * 字符集转换主体过滤器函数
+ * 
+ * 该函数负责对HTTP响应主体进行字符集转换处理。
+ * 它会根据上下文中设置的转换表对输入的缓冲链进行重编码。
+ *
+ * @param r 指向当前HTTP请求的指针
+ * @param in 输入的缓冲链
+ * @return NGX_OK 处理成功
+ *         NGX_ERROR 处理失败
+ */
 static ngx_int_t
 ngx_http_charset_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    ngx_int_t                rc;
-    ngx_buf_t               *b;
-    ngx_chain_t             *cl, *out, **ll;
-    ngx_http_charset_ctx_t  *ctx;
+    ngx_int_t                rc;        /* 用于存储函数返回值 */
+    ngx_buf_t               *b;         /* 指向当前处理的缓冲区 */
+    ngx_chain_t             *cl, *out, **ll;  /* cl: 输入链表, out: 输出链表, ll: 输出链表的尾指针 */
+    ngx_http_charset_ctx_t  *ctx;       /* 字符集转换上下文 */
 
+    /* 获取字符集转换上下文 */
     ctx = ngx_http_get_module_ctx(r, ngx_http_charset_filter_module);
 
+    /* 如果上下文不存在或转换表为空,直接传递给下一个过滤器 */
     if (ctx == NULL || ctx->table == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
 
+    /* 处理UTF-8转换或有未处理完的数据 */
     if ((ctx->to_utf8 || ctx->from_utf8) || ctx->busy) {
 
         out = NULL;
         ll = &out;
 
+        /* 遍历输入缓冲链 */
         for (cl = in; cl; cl = cl->next) {
             b = cl->buf;
 
+            /* 处理空缓冲区 */
             if (ngx_buf_size(b) == 0) {
 
+                /* 分配新的链节点 */
                 *ll = ngx_alloc_chain_link(r->pool);
                 if (*ll == NULL) {
                     return NGX_ERROR;
                 }
 
+                /* 设置链节点 */
                 (*ll)->buf = b;
                 (*ll)->next = NULL;
 
@@ -693,6 +711,7 @@ ngx_http_charset_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
                 continue;
             }
 
+            /* 根据转换方向调用相应的重编码函数 */
             if (ctx->to_utf8) {
                 *ll = ngx_http_charset_recode_to_utf8(r->pool, b, ctx);
 
@@ -700,46 +719,56 @@ ngx_http_charset_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
                 *ll = ngx_http_charset_recode_from_utf8(r->pool, b, ctx);
             }
 
+            /* 检查重编码是否成功 */
             if (*ll == NULL) {
                 return NGX_ERROR;
             }
 
+            /* 移动到链表末尾 */
             while (*ll) {
                 ll = &(*ll)->next;
             }
         }
 
+        /* 调用下一个主体过滤器 */
         rc = ngx_http_next_body_filter(r, out);
 
+        /* 处理输出链表 */
         if (out) {
             if (ctx->busy == NULL) {
                 ctx->busy = out;
 
             } else {
+                /* 将输出链表添加到busy链表末尾 */
                 for (cl = ctx->busy; cl->next; cl = cl->next) { /* void */ }
                 cl->next = out;
             }
         }
 
+        /* 清理已处理完的缓冲区 */
         while (ctx->busy) {
 
             cl = ctx->busy;
             b = cl->buf;
 
+            /* 如果缓冲区还有数据,停止清理 */
             if (ngx_buf_size(b) != 0) {
                 break;
             }
 
             ctx->busy = cl->next;
 
+            /* 跳过非本模块创建的缓冲区 */
             if (b->tag != (ngx_buf_tag_t) &ngx_http_charset_filter_module) {
                 continue;
             }
 
+            /* 处理影子缓冲区 */
             if (b->shadow) {
                 b->shadow->pos = b->shadow->last;
             }
 
+            /* 回收缓冲区 */
             if (b->pos) {
                 cl->next = ctx->free_buffers;
                 ctx->free_buffers = cl;
@@ -753,10 +782,12 @@ ngx_http_charset_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return rc;
     }
 
+    /* 非UTF-8转换,直接对每个缓冲区进行重编码 */
     for (cl = in; cl; cl = cl->next) {
         (void) ngx_http_charset_recode(cl->buf, ctx->table);
     }
 
+    /* 调用下一个主体过滤器 */
     return ngx_http_next_body_filter(r, in);
 }
 
