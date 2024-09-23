@@ -211,41 +211,59 @@ ngx_chain_get_free_buf(ngx_pool_t *p, ngx_chain_t **free)
 }
 
 
+/**
+ * @brief 更新链表链
+ *
+ * 该函数用于更新和管理缓冲区链表。它处理输出链表、忙碌链表和空闲链表之间的关系。
+ *
+ * @param p 内存池指针
+ * @param free 指向空闲链表指针的指针
+ * @param busy 指向忙碌链表指针的指针
+ * @param out 指向输出链表指针的指针
+ * @param tag 缓冲区标签
+ */
 void
 ngx_chain_update_chains(ngx_pool_t *p, ngx_chain_t **free, ngx_chain_t **busy,
     ngx_chain_t **out, ngx_buf_tag_t tag)
 {
     ngx_chain_t  *cl;
 
+    // 如果输出链表不为空，将其添加到忙碌链表的末尾
     if (*out) {
         if (*busy == NULL) {
+            // 如果忙碌链表为空，直接将输出链表赋值给忙碌链表
             *busy = *out;
-
         } else {
+            // 否则，遍历忙碌链表到末尾，然后将输出链表接上
             for (cl = *busy; cl->next; cl = cl->next) { /* void */ }
-
             cl->next = *out;
         }
 
+        // 清空输出链表
         *out = NULL;
     }
 
+    // 处理忙碌链表中的缓冲区
     while (*busy) {
         cl = *busy;
 
+        // 如果缓冲区标签不匹配，从忙碌链表中移除并释放
         if (cl->buf->tag != tag) {
             *busy = cl->next;
             ngx_free_chain(p, cl);
             continue;
         }
 
+        // 如果缓冲区还有数据，停止处理
         if (ngx_buf_size(cl->buf) != 0) {
             break;
         }
 
+        // 重置缓冲区的位置指针
         cl->buf->pos = cl->buf->start;
         cl->buf->last = cl->buf->start;
 
+        // 将处理完的缓冲区从忙碌链表移到空闲链表
         *busy = cl->next;
         cl->next = *free;
         *free = cl;

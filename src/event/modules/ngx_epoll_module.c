@@ -138,37 +138,159 @@ typedef struct {
 } ngx_epoll_conf_t;
 
 
+/*
+ * ngx_epoll_init - 初始化epoll模块
+ * 参数:
+ *   cycle: nginx核心周期
+ *   timer: 定时器超时时间
+ * 返回值:
+ *   NGX_OK: 成功
+ *   NGX_ERROR: 失败
+ */
 static ngx_int_t ngx_epoll_init(ngx_cycle_t *cycle, ngx_msec_t timer);
+
 #if (NGX_HAVE_EVENTFD)
+/*
+ * ngx_epoll_notify_init - 初始化epoll通知机制
+ * 参数:
+ *   log: 日志对象
+ * 返回值:
+ *   NGX_OK: 成功
+ *   NGX_ERROR: 失败
+ */
 static ngx_int_t ngx_epoll_notify_init(ngx_log_t *log);
+
+/*
+ * ngx_epoll_notify_handler - epoll通知事件处理函数
+ * 参数:
+ *   ev: 事件对象
+ */
 static void ngx_epoll_notify_handler(ngx_event_t *ev);
 #endif
+
 #if (NGX_HAVE_EPOLLRDHUP)
+/*
+ * ngx_epoll_test_rdhup - 测试EPOLLRDHUP事件
+ * 参数:
+ *   cycle: nginx核心周期
+ */
 static void ngx_epoll_test_rdhup(ngx_cycle_t *cycle);
 #endif
+
+/*
+ * ngx_epoll_done - 清理epoll模块
+ * 参数:
+ *   cycle: nginx核心周期
+ */
 static void ngx_epoll_done(ngx_cycle_t *cycle);
+
+/*
+ * ngx_epoll_add_event - 添加epoll事件
+ * 参数:
+ *   ev: 事件对象
+ *   event: 事件类型
+ *   flags: 标志位
+ * 返回值:
+ *   NGX_OK: 成功
+ *   NGX_ERROR: 失败
+ */
 static ngx_int_t ngx_epoll_add_event(ngx_event_t *ev, ngx_int_t event,
     ngx_uint_t flags);
+
+/*
+ * ngx_epoll_del_event - 删除epoll事件
+ * 参数:
+ *   ev: 事件对象
+ *   event: 事件类型
+ *   flags: 标志位
+ * 返回值:
+ *   NGX_OK: 成功
+ *   NGX_ERROR: 失败
+ */
 static ngx_int_t ngx_epoll_del_event(ngx_event_t *ev, ngx_int_t event,
     ngx_uint_t flags);
+
+/*
+ * ngx_epoll_add_connection - 添加连接到epoll
+ * 参数:
+ *   c: 连接对象
+ * 返回值:
+ *   NGX_OK: 成功
+ *   NGX_ERROR: 失败
+ */
 static ngx_int_t ngx_epoll_add_connection(ngx_connection_t *c);
+
+/*
+ * ngx_epoll_del_connection - 从epoll中删除连接
+ * 参数:
+ *   c: 连接对象
+ *   flags: 标志位
+ * 返回值:
+ *   NGX_OK: 成功
+ *   NGX_ERROR: 失败
+ */
 static ngx_int_t ngx_epoll_del_connection(ngx_connection_t *c,
     ngx_uint_t flags);
+
 #if (NGX_HAVE_EVENTFD)
+/*
+ * ngx_epoll_notify - 发送epoll通知
+ * 参数:
+ *   handler: 事件处理函数
+ * 返回值:
+ *   NGX_OK: 成功
+ *   NGX_ERROR: 失败
+ */
 static ngx_int_t ngx_epoll_notify(ngx_event_handler_pt handler);
 #endif
+
+/*
+ * ngx_epoll_process_events - 处理epoll事件
+ * 参数:
+ *   cycle: nginx核心周期
+ *   timer: 超时时间
+ *   flags: 标志位
+ * 返回值:
+ *   NGX_OK: 成功
+ *   NGX_ERROR: 失败
+ */
 static ngx_int_t ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer,
     ngx_uint_t flags);
 
 #if (NGX_HAVE_FILE_AIO)
+/*
+ * ngx_epoll_eventfd_handler - 处理eventfd事件
+ * 参数:
+ *   ev: 事件对象
+ */
 static void ngx_epoll_eventfd_handler(ngx_event_t *ev);
 #endif
 
+/*
+ * ngx_epoll_create_conf - 创建epoll配置
+ * 参数:
+ *   cycle: nginx核心周期
+ * 返回值:
+ *   配置对象指针
+ */
 static void *ngx_epoll_create_conf(ngx_cycle_t *cycle);
+
+/*
+ * ngx_epoll_init_conf - 初始化epoll配置
+ * 参数:
+ *   cycle: nginx核心周期
+ *   conf: 配置对象
+ * 返回值:
+ *   NGX_CONF_OK: 成功
+ *   NGX_CONF_ERROR: 失败
+ */
 static char *ngx_epoll_init_conf(ngx_cycle_t *cycle, void *conf);
 
+/* epoll文件描述符 */
 static int                  ep = -1;
+/* epoll事件列表 */
 static struct epoll_event  *event_list;
+/* epoll事件数量 */
 static ngx_uint_t           nevents;
 
 #if (NGX_HAVE_EVENTFD)

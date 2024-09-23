@@ -964,9 +964,11 @@ ngx_http_discarded_request_body_handler(ngx_http_request_t *r)
     rc = ngx_http_read_discarded_request_body(r);
 
     if (rc == NGX_OK) {
-        // 请求体已完全丢弃
+        // 重置丢弃请求体标志
         r->discard_body = 0;
+        // 重置延迟关闭标志
         r->lingering_close = 0;
+        // 重置延迟时间
         r->lingering_time = 0;
         ngx_http_finalize_request(r, NGX_DONE);
         return;

@@ -58,6 +58,19 @@ static ngx_inline void ngx_event_pipe_remove_shadow_links(ngx_buf_t *buf);
 static ngx_int_t ngx_event_pipe_drain_chains(ngx_event_pipe_t *p);
 
 
+/**
+ * @brief 事件管道的主要处理函数
+ *
+ * 该函数负责协调上游数据的读取和向下游的写入操作。它会循环执行以下步骤:
+ * 1. 如果需要，向下游写入数据
+ * 2. 从上游读取数据
+ * 3. 处理读取和写入过程中的各种情况
+ *
+ * @param p 指向ngx_event_pipe_t结构的指针，包含了管道操作所需的所有信息
+ * @param do_write 标志位，指示是否需要执行写操作
+ * @return NGX_ABORT 如果发生严重错误
+ *         NGX_OK 如果处理成功或需要稍后继续处理
+ */
 ngx_int_t
 ngx_event_pipe(ngx_event_pipe_t *p, ngx_int_t do_write)
 {
@@ -148,15 +161,25 @@ ngx_event_pipe(ngx_event_pipe_t *p, ngx_int_t do_write)
 }
 
 
+/**
+ * @brief 从上游读取数据的函数
+ *
+ * 该函数负责从上游连接读取数据并进行处理。它会检查上游状态，
+ * 处理预读缓冲区，分配新的缓冲区，读取数据，并调用输入过滤器。
+ * 函数还会处理各种边界情况，如EOF、错误和超时等。
+ *
+ * @param p 指向ngx_event_pipe_t结构的指针，包含管道处理的相关信息
+ * @return ngx_int_t 返回处理结果，可能的值包括NGX_OK、NGX_AGAIN、NGX_BUSY等
+ */
 static ngx_int_t
 ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
 {
-    off_t         limit;
-    ssize_t       n, size;
-    ngx_int_t     rc;
-    ngx_buf_t    *b;
-    ngx_msec_t    delay;
-    ngx_chain_t  *chain, *cl, *ln;
+    off_t         limit;      // 限制读取的字节数
+    ssize_t       n, size;    // n用于存储实际读取的字节数，size用于缓冲区大小
+    ngx_int_t     rc;         // 用于存储函数返回值
+    ngx_buf_t    *b;          // 指向缓冲区结构的指针
+    ngx_msec_t    delay;      // 用于存储延迟时间
+    ngx_chain_t  *chain, *cl, *ln;  // 用于管理缓冲区链表的指针
 
     // 如果上游已经结束、出错或完成，或者上游连接不存在，则直接返回
     if (p->upstream_eof || p->upstream_error || p->upstream_done
@@ -797,13 +820,25 @@ ngx_event_pipe_write_to_downstream(ngx_event_pipe_t *p)
 }
 
 
+/**
+ * @brief 将链表数据写入临时文件
+ *
+ * 该函数负责将缓冲链表中的数据写入临时文件。它处理异步I/O、缓存控制和写入限制等情况。
+ *
+ * @param p 指向ngx_event_pipe_t结构的指针，包含管道处理的相关信息
+ * @return ngx_int_t 返回写入操作的状态码
+ *         NGX_OK: 写入成功
+ *         NGX_AGAIN: 需要再次尝试写入
+ *         NGX_ABORT: 写入过程中发生错误
+ */
 static ngx_int_t
 ngx_event_pipe_write_chain_to_temp_file(ngx_event_pipe_t *p)
 {
-    ssize_t       size, bsize, n;
-    ngx_buf_t    *b;
-    ngx_uint_t    prev_last_shadow;
-    ngx_chain_t  *cl, *tl, *next, *out, **ll, **last_out, **last_free;
+    ssize_t       size, bsize, n;        /* 用于存储大小和写入字节数 */
+    ngx_buf_t    *b;                     /* 指向当前处理的缓冲区 */
+    ngx_uint_t    prev_last_shadow;      /* 标记前一个缓冲区是否为最后一个影子 */
+    ngx_chain_t  *cl, *tl, *next, *out;  /* 用于链表操作的指针 */
+    ngx_chain_t  **ll, **last_out, **last_free;  /* 用于管理链表尾部的指针 */
 
 #if (NGX_THREADS)
 
@@ -1032,6 +1067,16 @@ free:
 
 /* the copy input filter */
 
+/**
+ * @brief 复制输入过滤器函数
+ *
+ * 该函数用于复制输入缓冲区的内容到事件管道中。它处理输入数据，
+ * 检查上游状态，并将数据添加到事件管道的输入链中。
+ *
+ * @param p 指向ngx_event_pipe_t结构的指针，表示事件管道
+ * @param buf 指向输入缓冲区的指针
+ * @return NGX_OK 表示成功，NGX_ERROR 表示出错
+ */
 ngx_int_t
 ngx_event_pipe_copy_input_filter(ngx_event_pipe_t *p, ngx_buf_t *buf)
 {
@@ -1113,6 +1158,14 @@ ngx_event_pipe_copy_input_filter(ngx_event_pipe_t *p, ngx_buf_t *buf)
 }
 
 
+/**
+ * @brief 移除缓冲区的影子链接
+ *
+ * 该函数用于移除给定缓冲区的所有影子链接。它会遍历影子链，
+ * 重置每个影子缓冲区的属性，并断开所有影子链接。
+ *
+ * @param buf 需要移除影子链接的缓冲区
+ */
 static ngx_inline void
 ngx_event_pipe_remove_shadow_links(ngx_buf_t *buf)
 {
@@ -1152,6 +1205,16 @@ ngx_event_pipe_remove_shadow_links(ngx_buf_t *buf)
 }
 
 
+/**
+ * @brief 向事件管道中添加空闲缓冲区
+ *
+ * 该函数用于将一个空闲的缓冲区添加到事件管道的空闲原始缓冲区链表中。
+ * 它会根据当前链表的状态，决定将新的缓冲区添加到链表的头部还是第一个非空缓冲区之后。
+ *
+ * @param p 指向事件管道结构的指针
+ * @param b 要添加的空闲缓冲区
+ * @return NGX_OK 如果成功添加缓冲区，NGX_ERROR 如果内存分配失败
+ */
 ngx_int_t
 ngx_event_pipe_add_free_buf(ngx_event_pipe_t *p, ngx_buf_t *b)
 {
@@ -1202,6 +1265,16 @@ ngx_event_pipe_add_free_buf(ngx_event_pipe_t *p, ngx_buf_t *b)
 }
 
 
+/**
+ * @brief 清理并释放事件管道中的链表资源
+ *
+ * 该函数遍历并处理事件管道中的busy、out和in链表，
+ * 清理缓冲区的shadow指针，并将链表节点添加到空闲链表中。
+ *
+ * @param p 指向ngx_event_pipe_t结构的指针
+ * @return NGX_OK 成功清理所有链表
+ *         NGX_ABORT 在处理过程中出现错误
+ */
 static ngx_int_t
 ngx_event_pipe_drain_chains(ngx_event_pipe_t *p)
 {

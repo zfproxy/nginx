@@ -232,35 +232,41 @@ ngx_module_t  ngx_event_core_module = {
 };
 
 
+/**
+ * @brief 处理事件和定时器
+ *
+ * 该函数负责处理Nginx中的事件和定时器。它是Nginx事件循环的核心部分，
+ * 负责调度和执行各种I/O事件、定时器事件等。
+ *
+ * @param cycle 指向ngx_cycle_t结构的指针，包含了Nginx运行时的配置和状态信息
+ */
 void
 ngx_process_events_and_timers(ngx_cycle_t *cycle)
 {
+    /* 定义标志位和定时器变量 */
     ngx_uint_t  flags;
     ngx_msec_t  timer, delta;
 
+    /* 根据是否设置定时器分辨率来初始化timer和flags */
     if (ngx_timer_resolution) {
         timer = NGX_TIMER_INFINITE;
         flags = 0;
-
     } else {
         timer = ngx_event_find_timer();
         flags = NGX_UPDATE_TIME;
 
 #if (NGX_WIN32)
-
-        /* handle signals from master in case of network inactivity */
-
+        /* 在Windows下处理网络不活跃时来自master的信号 */
         if (timer == NGX_TIMER_INFINITE || timer > 500) {
             timer = 500;
         }
-
 #endif
     }
 
+    /* 处理accept互斥锁 */
     if (ngx_use_accept_mutex) {
         if (ngx_accept_disabled > 0) {
             ngx_accept_disabled--;
-
         } else {
             if (ngx_trylock_accept_mutex(cycle) == NGX_ERROR) {
                 return;
@@ -268,7 +274,6 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
 
             if (ngx_accept_mutex_held) {
                 flags |= NGX_POST_EVENTS;
-
             } else {
                 if (timer == NGX_TIMER_INFINITE
                     || timer > ngx_accept_mutex_delay)
@@ -279,28 +284,37 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
         }
     }
 
+    /* 处理下一个事件队列 */
     if (!ngx_queue_empty(&ngx_posted_next_events)) {
         ngx_event_move_posted_next(cycle);
         timer = 0;
     }
 
+    /* 记录开始时间 */
     delta = ngx_current_msec;
 
+    /* 处理事件 */
     (void) ngx_process_events(cycle, timer, flags);
 
+    /* 计算处理事件所用时间 */
     delta = ngx_current_msec - delta;
 
+    /* 记录日志 */
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                    "timer delta: %M", delta);
 
+    /* 处理已发布的accept事件 */
     ngx_event_process_posted(cycle, &ngx_posted_accept_events);
 
+    /* 释放accept互斥锁 */
     if (ngx_accept_mutex_held) {
         ngx_shmtx_unlock(&ngx_accept_mutex);
     }
 
+    /* 处理过期的定时器 */
     ngx_event_expire_timers();
 
+    /* 处理已发布的普通事件 */
     ngx_event_process_posted(cycle, &ngx_posted_events);
 }
 
