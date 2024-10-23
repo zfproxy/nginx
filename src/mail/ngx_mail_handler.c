@@ -339,25 +339,56 @@ ngx_mail_init_session_handler(ngx_event_t *rev)
 
 #if (NGX_MAIL_SSL)
 
+/*
+ * 处理STARTTLS命令的函数
+ * 
+ * 该函数在客户端发送STARTTLS命令后被调用，用于将普通连接升级为SSL/TLS加密连接
+ *
+ * 参数:
+ *   rev: 读事件结构体指针，包含了连接相关信息
+ *
+ * 功能:
+ * 1. 设置会话的starttls标志
+ * 2. 获取SSL配置
+ * 3. 初始化SSL连接
+ *
+ * 注意:
+ * - 该函数仅在编译时启用了NGX_MAIL_SSL宏时才会被定义
+ * - 调用该函数后，连接将进入SSL握手阶段
+ */
 void
 ngx_mail_starttls_handler(ngx_event_t *rev)
 {
+    // 获取连接和会话结构体指针
     ngx_connection_t     *c;
     ngx_mail_session_t   *s;
     ngx_mail_ssl_conf_t  *sslcf;
 
+    // 从读事件中获取连接
     c = rev->data;
+    // 从连接中获取会话
     s = c->data;
+    // 设置STARTTLS标志
     s->starttls = 1;
 
+    // 设置日志动作
     c->log->action = "in starttls state";
 
+    // 获取SSL配置
     sslcf = ngx_mail_get_module_srv_conf(s, ngx_mail_ssl_module);
 
+    // 初始化SSL连接
     ngx_mail_ssl_init_connection(&sslcf->ssl, c);
 }
 
-
+/**
+ * 初始化SSL连接
+ *
+ * 根据给定的SSL对象和连接对象，初始化一个SSL连接。
+ *
+ * @param ssl SSL对象指针
+ * @param c 连接对象
+ */
 static void
 ngx_mail_ssl_init_connection(ngx_ssl_t *ssl, ngx_connection_t *c)
 {

@@ -481,17 +481,33 @@ ngx_mail_imap_capability(ngx_mail_session_t *s, ngx_connection_t *c)
 }
 
 
+/*
+ * 处理IMAP STARTTLS命令的函数
+ * 
+ * 参数:
+ *   s: 邮件会话结构体指针
+ *   c: 连接结构体指针
+ * 
+ * 返回值:
+ *   NGX_OK: STARTTLS命令处理成功
+ *   NGX_MAIL_PARSE_INVALID_COMMAND: STARTTLS命令无效或不支持
+ */
 static ngx_int_t
 ngx_mail_imap_starttls(ngx_mail_session_t *s, ngx_connection_t *c)
 {
 #if (NGX_MAIL_SSL)
     ngx_mail_ssl_conf_t  *sslcf;
 
+    /* 检查连接是否已经启用SSL */
     if (c->ssl == NULL) {
+        /* 获取SSL配置 */
         sslcf = ngx_mail_get_module_srv_conf(s, ngx_mail_ssl_module);
+        /* 如果支持STARTTLS */
         if (sslcf->starttls) {
+            /* 重置缓冲区 */
             s->buffer->pos = s->buffer->start;
             s->buffer->last = s->buffer->start;
+            /* 设置读事件处理函数为STARTTLS处理器 */
             c->read->handler = ngx_mail_starttls_handler;
             return NGX_OK;
         }
@@ -499,5 +515,6 @@ ngx_mail_imap_starttls(ngx_mail_session_t *s, ngx_connection_t *c)
 
 #endif
 
+    /* 如果不支持STARTTLS或已经是SSL连接，返回无效命令 */
     return NGX_MAIL_PARSE_INVALID_COMMAND;
 }

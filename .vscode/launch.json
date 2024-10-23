@@ -23,9 +23,9 @@
         "miDebuggerPath": "/usr/bin/gdb",  // GDB 路径
         "miDebuggerArgs": "-ex 'set follow-fork-mode child'", // 调试子进程
         "logging": {
-          "engineLogging": true,
-          "trace": true,
-          "traceResponse": true
+          // "engineLogging": true,
+          // "trace": true,
+          // "traceResponse": true
         },
         "serverReadyAction": {
           "pattern": "listening on port ([0-9]+)",

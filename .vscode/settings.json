@@ -1,11 +1,5 @@
 {
-    "files.associations": {
-        "ngx_config.h": "c",
-        "ngx_auto_headers.h": "c",
-        "ngx_core.h": "c",
-        "ngx_stream_variables.h": "c",
-        "ngx_stream_script.h": "c",
-        "ngx_stream_upstream.h": "c",
-        "ngx_event_connect.h": "c"
-    }
+    "C_Cpp.clang_format_style": "file",  // 使 VSCode 使用 .clang-format 文件
+    "C_Cpp.clang_format_fallbackStyle": "Google",  // 可选的回退风格
+    "editor.formatOnSave": true  // 启用保存时格式化
 }

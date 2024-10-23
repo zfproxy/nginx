@@ -601,22 +601,27 @@ ngx_mail_smtp_auth_state(ngx_event_t *rev)
         /* fall through */
 
     case NGX_OK:
+        // 重置参数
         s->args.nelts = 0;
 
+        // 如果缓冲区已经读取完毕，重置缓冲区
         if (s->buffer->pos == s->buffer->last) {
             s->buffer->pos = s->buffer->start;
             s->buffer->last = s->buffer->start;
         }
 
+        // 如果状态不为0，重置参数开始位置
         if (s->state) {
             s->arg_start = s->buffer->pos;
         }
 
+        // 如果读事件处理失败，返回内部服务器错误
         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
             ngx_mail_session_internal_server_error(s);
             return;
         }
 
+        // 发送邮件
         ngx_mail_send(c->write);
     }
 }
@@ -864,36 +869,36 @@ ngx_mail_smtp_rset(ngx_mail_session_t *s, ngx_connection_t *c)
     return NGX_OK;
 }
 
-
 static ngx_int_t
 ngx_mail_smtp_starttls(ngx_mail_session_t *s, ngx_connection_t *c)
 {
-#if (NGX_MAIL_SSL)
+    // 检查是否支持SSL
+    #if (NGX_MAIL_SSL)
     ngx_mail_ssl_conf_t  *sslcf;
 
+    // 如果当前连接没有SSL会话
     if (c->ssl == NULL) {
+        // 获取SSL配置
         sslcf = ngx_mail_get_module_srv_conf(s, ngx_mail_ssl_module);
+        // 如果支持STARTTLS
         if (sslcf->starttls) {
+            // 根据RFC3207，需要丢弃客户端在STARTTLS之前提供的任何信息
+            ngx_str_null(&s->smtp_helo); // 清空SMTP HELO信息
+            ngx_str_null(&s->smtp_from); // 清空SMTP FROM信息
+            ngx_str_null(&s->smtp_to); // 清空SMTP TO信息
 
-            /*
-             * RFC3207 requires us to discard any knowledge
-             * obtained from client before STARTTLS.
-             */
-
-            ngx_str_null(&s->smtp_helo);
-            ngx_str_null(&s->smtp_from);
-            ngx_str_null(&s->smtp_to);
-
+            // 重置缓冲区
             s->buffer->pos = s->buffer->start;
             s->buffer->last = s->buffer->start;
 
+            // 设置读取处理器为STARTTLS处理器
             c->read->handler = ngx_mail_starttls_handler;
-            return NGX_OK;
+            return NGX_OK; // 返回成功
         }
     }
+    #endif
 
-#endif
-
+    // 如果不支持STARTTLS或其他错误，返回无效命令
     return NGX_MAIL_PARSE_INVALID_COMMAND;
 }
 

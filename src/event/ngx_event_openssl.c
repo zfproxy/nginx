@@ -1748,20 +1748,35 @@ ngx_ssl_new_client_session(ngx_ssl_conn_t *ssl_conn, ngx_ssl_session_t *sess)
     return 0;
 }
 
-
+/**
+ * 创建SSL连接
+ * 
+ * 参数:
+ * ssl: SSL上下文对象
+ * c: 连接对象
+ * flags: 连接标志
+ * 
+ * 返回值:
+ * NGX_OK: 连接成功
+ * NGX_ERROR: 连接失败
+ */
 ngx_int_t
 ngx_ssl_create_connection(ngx_ssl_t *ssl, ngx_connection_t *c, ngx_uint_t flags)
 {
     ngx_ssl_connection_t  *sc;
 
+    // 从连接池中分配ngx_ssl_connection_t结构体大小的内存，并将其初始化为0
     sc = ngx_pcalloc(c->pool, sizeof(ngx_ssl_connection_t));
     if (sc == NULL) {
         return NGX_ERROR;
     }
 
+    // 根据flags标志位判断是否启用SSL缓冲区
     sc->buffer = ((flags & NGX_SSL_BUFFER) != 0);
+    // 设置SSL缓冲区大小
     sc->buffer_size = ssl->buffer_size;
 
+    // 将SSL上下文对象赋值给sc->session_ctx
     sc->session_ctx = ssl->ctx;
 
 #ifdef SSL_READ_EARLY_DATA_SUCCESS
@@ -1770,6 +1785,7 @@ ngx_ssl_create_connection(ngx_ssl_t *ssl, ngx_connection_t *c, ngx_uint_t flags)
     }
 #endif
 
+    // 创建SSL连接
     sc->connection = SSL_new(ssl->ctx);
 
     if (sc->connection == NULL) {
@@ -1777,33 +1793,44 @@ ngx_ssl_create_connection(ngx_ssl_t *ssl, ngx_connection_t *c, ngx_uint_t flags)
         return NGX_ERROR;
     }
 
+    // 设置SSL连接的文件描述符
     if (SSL_set_fd(sc->connection, c->fd) == 0) {
         ngx_ssl_error(NGX_LOG_ALERT, c->log, 0, "SSL_set_fd() failed");
         return NGX_ERROR;
     }
 
+    // 根据标志位判断是否为客户端连接
     if (flags & NGX_SSL_CLIENT) {
-        SSL_set_connect_state(sc->connection);
-
+        SSL_set_connect_state(sc->connection); // 设置为客户端连接状态
     } else {
-        SSL_set_accept_state(sc->connection);
-
+        SSL_set_accept_state(sc->connection); // 设置为服务端接受状态
+        // 禁用SSL重协商
 #ifdef SSL_OP_NO_RENEGOTIATION
         SSL_set_options(sc->connection, SSL_OP_NO_RENEGOTIATION);
 #endif
     }
 
+    // 将连接对象存储在SSL连接的外部数据中
     if (SSL_set_ex_data(sc->connection, ngx_ssl_connection_index, c) == 0) {
         ngx_ssl_error(NGX_LOG_ALERT, c->log, 0, "SSL_set_ex_data() failed");
         return NGX_ERROR;
     }
 
+    // 将SSL连接对象存储在连接对象中
     c->ssl = sc;
 
     return NGX_OK;
 }
 
 
+/**
+ * @brief 获取SSL会话
+ *
+ * 从连接对象中获取当前的SSL会话。
+ *
+ * @param c 连接对象
+ * @return SSL会话对象，失败返回NULL
+ */
 ngx_ssl_session_t *
 ngx_ssl_get_session(ngx_connection_t *c)
 {
@@ -1818,17 +1845,37 @@ ngx_ssl_get_session(ngx_connection_t *c)
 }
 
 
+/**
+ * @brief 获取SSL会话（不增加引用计数）
+ *
+ * 从连接对象中获取当前的SSL会话，不增加会话的引用计数。
+ *
+ * @param c 连接对象
+ * @return SSL会话对象，失败返回NULL
+ */
 ngx_ssl_session_t *
 ngx_ssl_get0_session(ngx_connection_t *c)
 {
+    // 首先检查连接对象的SSL会话是否已存在
     if (c->ssl->session) {
+        // 如果存在，则直接返回该会话
         return c->ssl->session;
     }
 
+    // 如果不存在，则从SSL连接对象中获取当前会话
     return SSL_get0_session(c->ssl->connection);
 }
 
 
+/**
+ * @brief 设置SSL会话
+ *
+ * 将给定的SSL会话设置到连接对象中。
+ *
+ * @param c 连接对象
+ * @param session 要设置的SSL会话
+ * @return 设置结果，成功返回NGX_OK，失败返回NGX_ERROR
+ */
 ngx_int_t
 ngx_ssl_set_session(ngx_connection_t *c, ngx_ssl_session_t *session)
 {
@@ -1843,31 +1890,44 @@ ngx_ssl_set_session(ngx_connection_t *c, ngx_ssl_session_t *session)
 }
 
 
+/**
+ * @brief 执行SSL/TLS握手
+ *
+ * @param c 连接对象
+ * @return ngx_int_t 握手结果
+ *   NGX_OK: 握手成功
+ *   NGX_ERROR: 握手失败
+ *   NGX_AGAIN: 需要继续握手
+ */
 ngx_int_t
 ngx_ssl_handshake(ngx_connection_t *c)
 {
-    int        n, sslerr;
-    ngx_err_t  err;
-    ngx_int_t  rc;
+    int        n, sslerr;      // n用于存储SSL_do_handshake的返回值，sslerr用于存储SSL错误码
+    ngx_err_t  err;            // 用于存储系统错误码
+    ngx_int_t  rc;             // 用于存储函数的返回值
 
 #ifdef SSL_READ_EARLY_DATA_SUCCESS
     if (c->ssl->try_early_data) {
         return ngx_ssl_try_early_data(c);
     }
 #endif
-
+    // 检查是否正在进行OCSP验证
     if (c->ssl->in_ocsp) {
         return ngx_ssl_ocsp_validate(c);
     }
 
+    // 清除之前的SSL错误
     ngx_ssl_clear_error(c->log);
 
+    // 执行SSL握手
     n = SSL_do_handshake(c->ssl->connection);
 
+    // 记录握手结果
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0, "SSL_do_handshake: %d", n);
 
+    // 如果握手成功
     if (n == 1) {
-
+        // 处理读写事件
         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
             return NGX_ERROR;
         }
@@ -1877,14 +1937,17 @@ ngx_ssl_handshake(ngx_connection_t *c)
         }
 
 #if (NGX_DEBUG)
+        // 记录握手日志（仅在调试模式下）
         ngx_ssl_handshake_log(c);
 #endif
 
+        // 设置SSL连接的接收和发送函数
         c->recv = ngx_ssl_recv;
         c->send = ngx_ssl_write;
         c->recv_chain = ngx_ssl_recv_chain;
         c->send_chain = ngx_ssl_send_chain;
 
+        // 标记读写事件为就绪状态
         c->read->ready = 1;
         c->write->ready = 1;
 
@@ -1893,7 +1956,7 @@ ngx_ssl_handshake(ngx_connection_t *c)
      && defined SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS                             \
      && OPENSSL_VERSION_NUMBER < 0x10100000L)
 
-        /* initial handshake done, disable renegotiation (CVE-2009-3555) */
+        // 初始握手完成后，禁用重新协商（防止CVE-2009-3555漏洞）
         if (c->ssl->connection->s3 && SSL_is_server(c->ssl->connection)) {
             c->ssl->connection->s3->flags |= SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS;
         }
@@ -1902,6 +1965,7 @@ ngx_ssl_handshake(ngx_connection_t *c)
 
 #if (defined BIO_get_ktls_send && !NGX_WIN32)
 
+        // 检查是否启用了内核TLS发送
         if (BIO_get_ktls_send(SSL_get_wbio(c->ssl->connection)) == 1) {
             ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, 0,
                            "BIO_get_ktls_send(): 1");
@@ -1910,6 +1974,7 @@ ngx_ssl_handshake(ngx_connection_t *c)
 
 #endif
 
+        // 执行OCSP验证
         rc = ngx_ssl_ocsp_validate(c);
 
         if (rc == NGX_ERROR) {
@@ -1922,16 +1987,19 @@ ngx_ssl_handshake(ngx_connection_t *c)
             return NGX_AGAIN;
         }
 
+        // 标记握手完成
         c->ssl->handshaked = 1;
 
         return NGX_OK;
     }
 
+    // 获取SSL错误
     sslerr = SSL_get_error(c->ssl->connection, n);
 
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0, "SSL_get_error: %d", sslerr);
 
-    if (sslerr == SSL_ERROR_WANT_READ) {
+    // 处理SSL_ERROR_WANT_READ错误
+    if (sslerr == SSL_ERROR_WANT_READ) {  // SSL握手需要读取更多数据
         c->read->ready = 0;
         c->read->handler = ngx_ssl_handshake_handler;
         c->write->handler = ngx_ssl_handshake_handler;
@@ -1947,6 +2015,7 @@ ngx_ssl_handshake(ngx_connection_t *c)
         return NGX_AGAIN;
     }
 
+    // SSL_ERROR_WANT_WRITE: SSL握手需要写入更多数据
     if (sslerr == SSL_ERROR_WANT_WRITE) {
         c->write->ready = 0;
         c->read->handler = ngx_ssl_handshake_handler;
@@ -1963,12 +2032,16 @@ ngx_ssl_handshake(ngx_connection_t *c)
         return NGX_AGAIN;
     }
 
+
+    // 如果是系统调用错误(SSL_ERROR_SYSCALL)，则获取系统错误码；否则错误码为0
     err = (sslerr == SSL_ERROR_SYSCALL) ? ngx_errno : 0;
 
     c->ssl->no_wait_shutdown = 1;
     c->ssl->no_send_shutdown = 1;
     c->read->eof = 1;
 
+    // SSL_ERROR_ZERO_RETURN: 对端关闭连接
+    // ERR_peek_error() == 0: 没有错误信息，可能是正常关闭
     if (sslerr == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
         ngx_connection_error(c, err,
                              "peer closed connection in SSL handshake");
@@ -2189,6 +2262,13 @@ ngx_ssl_handshake_log(ngx_connection_t *c)
 #endif
 
 
+/**
+ * @brief SSL握手处理器
+ *
+ * 处理SSL握手事件。
+ *
+ * @param ev 事件对象
+ */
 static void
 ngx_ssl_handshake_handler(ngx_event_t *ev)
 {
@@ -2199,77 +2279,117 @@ ngx_ssl_handshake_handler(ngx_event_t *ev)
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0,
                    "SSL handshake handler: %d", ev->write);
 
+    // 如果事件超时，调用SSL处理函数并返回
     if (ev->timedout) {
         c->ssl->handler(c);
         return;
     }
 
+    // 如果SSL握手需要继续，返回
     if (ngx_ssl_handshake(c) == NGX_AGAIN) {
         return;
     }
 
+    // 否则，调用SSL处理函数
     c->ssl->handler(c);
 }
 
 
+/**
+ * @brief 从SSL连接中接收数据到链表中
+ *
+ * 从SSL连接中接收数据，并将其存储到链表中，直到达到指定的限制。
+ *
+ * @param c 连接对象
+ * @param cl 链表头
+ * @param limit 接收数据的最大限制
+ * @return 接收到的数据大小
+ */
 ssize_t
 ngx_ssl_recv_chain(ngx_connection_t *c, ngx_chain_t *cl, off_t limit)
 {
+    // 初始化变量
+    // last用于存储缓冲区的最后一个字节的地址
     u_char     *last;
+    // n用于存储从SSL连接中接收到的数据大小
+    // bytes用于累加接收到的数据总大小
+    // size用于存储当前缓冲区剩余的空间大小
     ssize_t     n, bytes, size;
+    // b用于存储链表中的第一个缓冲区
     ngx_buf_t  *b;
 
+    // 初始化bytes为0
     bytes = 0;
 
+    // 获取链表的第一个缓冲区
     b = cl->buf;
+    // 初始化last为缓冲区的起始位置
     last = b->last;
 
+    // 无限循环，直到达到条件
     for ( ;; ) {
+        // 计算当前缓冲区剩余的空间大小
         size = b->end - last;
 
+        // 如果有接收数据的限制
         if (limit) {
+            // 如果已经接收的数据达到限制，则返回
             if (bytes >= limit) {
                 return bytes;
             }
 
+            // 如果当前缓冲区的剩余空间超过限制，则调整size为限制减去已接收的数据
             if (bytes + size > limit) {
                 size = (ssize_t) (limit - bytes);
             }
         }
 
+        // 从SSL连接中接收数据
         n = ngx_ssl_recv(c, last, size);
 
+        // 如果接收到数据
         if (n > 0) {
+            // 更新last的位置
             last += n;
+            // 累加接收到的数据大小
             bytes += n;
 
+            // 如果读取事件不再ready，则返回
             if (!c->read->ready) {
                 return bytes;
             }
 
+            // 如果当前缓冲区已满，则移动到下一个缓冲区
             if (last == b->end) {
                 cl = cl->next;
 
+                // 如果没有下一个缓冲区，则返回
                 if (cl == NULL) {
                     return bytes;
                 }
 
+                // 更新缓冲区和last的位置
                 b = cl->buf;
                 last = b->last;
             }
 
+            // 继续循环
             continue;
         }
 
+        // 如果已经接收到数据，但当前接收失败
         if (bytes) {
 
+            // 如果接收失败或返回错误，则标记读取事件为ready
             if (n == 0 || n == NGX_ERROR) {
                 c->read->ready = 1;
             }
 
+            // 返回已接收的数据大小
             return bytes;
         }
 
+        // 如果没有接收到数据且当前接收失败，则返回错误代码
         return n;
     }
 }

@@ -54,29 +54,42 @@ struct ngx_event_s {
     unsigned         oneshot:1;
 
     /* aio操作已完成 */
+    /* aio操作是否已完成 */
     unsigned         complete:1;
 
+    /* 是否已到达文件末尾 */
     unsigned         eof:1;
+    /* 是否发生错误 */
     unsigned         error:1;
 
+    /* 是否超时 */
     unsigned         timedout:1;
+    /* 定时器是否已设置 */
     unsigned         timer_set:1;
 
+    /* 是否已延迟 */
     unsigned         delayed:1;
 
+    /* 是否已延迟接受 */
     unsigned         deferred_accept:1;
 
     /* kqueue、epoll或aio链操作中报告的待处理EOF */
+    /* kqueue、epoll或aio链操作中报告的待处理EOF */
     unsigned         pending_eof:1;
 
+    /* 事件是否已被发布 */
     unsigned         posted:1;
 
+    /* 连接是否已关闭 */
     unsigned         closed:1;
 
     /* 用于在worker退出时测试 */
+    /* 通道标志 */
     unsigned         channel:1;
+    /* 解析器标志 */
     unsigned         resolver:1;
 
+    /* 可取消标志 */
     unsigned         cancelable:1;
 
 #if (NGX_HAVE_KQUEUE)
@@ -103,17 +116,20 @@ struct ngx_event_s {
 
     int              available;
 
+    /* 事件处理函数指针 */
     ngx_event_handler_pt  handler;
 
 
 #if (NGX_HAVE_IOCP)
     ngx_event_ovlp_t ovlp;
 #endif
-
+    /* 事件索引 */
     ngx_uint_t       index;
 
+    /* 事件日志 */
     ngx_log_t       *log;
 
+    /* 定时器红黑树节点 */
     ngx_rbtree_node_t   timer;
 
     /* 已发布队列 */

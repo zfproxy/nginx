@@ -44,32 +44,35 @@
 #include <ngx_mail.h>
 
 
+/*
+ * 定义邮件代理配置结构体
+ */
 typedef struct {
-    ngx_flag_t  enable;
-    ngx_flag_t  pass_error_message;
-    ngx_flag_t  xclient;
-    ngx_flag_t  smtp_auth;
-    ngx_flag_t  proxy_protocol;
-    size_t      buffer_size;
-    ngx_msec_t  timeout;
+    ngx_flag_t  enable; /* 启用/禁用代理功能标志 */
+    ngx_flag_t  pass_error_message; /* 是否传递上游错误消息标志 */
+    ngx_flag_t  xclient; /* 启用/禁用XCLIENT支持标志 */
+    ngx_flag_t  smtp_auth; /* 启用/禁用SMTP AUTH支持标志 */
+    ngx_flag_t  proxy_protocol; /* 启用/禁用代理协议标志 */
+    size_t      buffer_size; /* 代理缓冲区大小 */
+    ngx_msec_t  timeout; /* 代理超时时间 */
 } ngx_mail_proxy_conf_t;
 
-
-static void ngx_mail_proxy_block_read(ngx_event_t *rev);
-static void ngx_mail_proxy_pop3_handler(ngx_event_t *rev);
-static void ngx_mail_proxy_imap_handler(ngx_event_t *rev);
-static void ngx_mail_proxy_smtp_handler(ngx_event_t *rev);
-static void ngx_mail_proxy_write_handler(ngx_event_t *wev);
-static ngx_int_t ngx_mail_proxy_send_proxy_protocol(ngx_mail_session_t *s);
-static ngx_int_t ngx_mail_proxy_read_response(ngx_mail_session_t *s,
-    ngx_uint_t state);
-static void ngx_mail_proxy_handler(ngx_event_t *ev);
-static void ngx_mail_proxy_upstream_error(ngx_mail_session_t *s);
-static void ngx_mail_proxy_internal_server_error(ngx_mail_session_t *s);
-static void ngx_mail_proxy_close_session(ngx_mail_session_t *s);
-static void *ngx_mail_proxy_create_conf(ngx_conf_t *cf);
-static char *ngx_mail_proxy_merge_conf(ngx_conf_t *cf, void *parent,
-    void *child);
+/*
+ * 定义邮件代理模块的函数声明
+ */
+static void ngx_mail_proxy_block_read(ngx_event_t *rev); /* 阻塞读取处理函数 */
+static void ngx_mail_proxy_pop3_handler(ngx_event_t *rev); /* POP3协议处理函数 */
+static void ngx_mail_proxy_imap_handler(ngx_event_t *rev); /* IMAP协议处理函数 */
+static void ngx_mail_proxy_smtp_handler(ngx_event_t *rev); /* SMTP协议处理函数 */
+static void ngx_mail_proxy_write_handler(ngx_event_t *wev); /* 写入处理函数 */
+static ngx_int_t ngx_mail_proxy_send_proxy_protocol(ngx_mail_session_t *s); /* 发送代理协议函数 */
+static ngx_int_t ngx_mail_proxy_read_response(ngx_mail_session_t *s, ngx_uint_t state); /* 读取响应函数 */
+static void ngx_mail_proxy_handler(ngx_event_t *ev); /* 事件处理函数 */
+static void ngx_mail_proxy_upstream_error(ngx_mail_session_t *s); /* 上游错误处理函数 */
+static void ngx_mail_proxy_internal_server_error(ngx_mail_session_t *s); /* 内部服务器错误处理函数 */
+static void ngx_mail_proxy_close_session(ngx_mail_session_t *s); /* 关闭会话函数 */
+static void *ngx_mail_proxy_create_conf(ngx_conf_t *cf); /* 创建配置函数 */
+static char *ngx_mail_proxy_merge_conf(ngx_conf_t *cf, void *parent, void *child); /* 合并配置函数 */
 
 
 static ngx_command_t  ngx_mail_proxy_commands[] = {
@@ -160,9 +163,13 @@ static u_char  smtp_auth_ok[] = "235 2.0.0 OK" CRLF;
 void
 ngx_mail_proxy_init(ngx_mail_session_t *s, ngx_addr_t *peer)
 {
+    // 初始化返回码
     ngx_int_t                  rc;
+    // 代理上下文指针
     ngx_mail_proxy_ctx_t      *p;
+    // 代理配置指针
     ngx_mail_proxy_conf_t     *pcf;
+    // 邮件核心服务器配置指针
     ngx_mail_core_srv_conf_t  *cscf;
 
     s->connection->log->action = "connecting to upstream";
@@ -177,13 +184,19 @@ ngx_mail_proxy_init(ngx_mail_session_t *s, ngx_addr_t *peer)
 
     s->proxy = p;
 
+    // 设置上游服务器的套接字地址和长度
     p->upstream.sockaddr = peer->sockaddr;
     p->upstream.socklen = peer->socklen;
+    // 设置上游服务器的名称
     p->upstream.name = &peer->name;
+    // 设置获取对等体的函数
     p->upstream.get = ngx_event_get_peer;
+    // 设置日志对象
     p->upstream.log = s->connection->log;
+    // 设置日志错误级别
     p->upstream.log_error = NGX_ERROR_ERR;
 
+    // 调用ngx_event_connect_peer函数连接到上游服务器
     rc = ngx_event_connect_peer(&p->upstream);
 
     if (rc == NGX_ERROR || rc == NGX_BUSY || rc == NGX_DECLINED) {
@@ -191,12 +204,17 @@ ngx_mail_proxy_init(ngx_mail_session_t *s, ngx_addr_t *peer)
         return;
     }
 
+    // 为上游服务器的读事件设置超时时间
     ngx_add_timer(p->upstream.connection->read, cscf->timeout);
 
+    // 设置上游连接的数据指针为当前会话
     p->upstream.connection->data = s;
+    // 设置上游连接的内存池为当前会话的连接池
     p->upstream.connection->pool = s->connection->pool;
 
+    // 设置当前会话连接的读事件处理函数为ngx_mail_proxy_block_read
     s->connection->read->handler = ngx_mail_proxy_block_read;
+    // 设置上游连接的写事件处理函数为ngx_mail_proxy_write_handler
     p->upstream.connection->write->handler = ngx_mail_proxy_write_handler;
 
     pcf = ngx_mail_get_module_srv_conf(s, ngx_mail_proxy_module);
@@ -246,6 +264,7 @@ ngx_mail_proxy_block_read(ngx_event_t *rev)
 
     ngx_log_debug0(NGX_LOG_DEBUG_MAIL, rev->log, 0, "mail proxy block read");
 
+    // 检查读取事件处理是否成功
     if (ngx_handle_read_event(rev, 0) != NGX_OK) {
         c = rev->data;
         s = c->data;

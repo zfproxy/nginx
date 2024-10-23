@@ -64,16 +64,71 @@ static int ngx_mail_ssl_alpn_select(ngx_ssl_conn_t *ssl_conn,
     const unsigned char *in, unsigned int inlen, void *arg);
 #endif
 
+/*
+ * 创建SSL配置结构体
+ * 参数:
+ *   cf: 配置上下文
+ * 返回值:
+ *   新创建的SSL配置结构体指针
+ */
 static void *ngx_mail_ssl_create_conf(ngx_conf_t *cf);
+
+/*
+ * 合并SSL配置结构体
+ * 参数:
+ *   cf: 配置上下文
+ *   parent: 父配置结构体
+ *   child: 子配置结构体
+ * 返回值:
+ *   合并后的配置结构体指针
+ */
 static char *ngx_mail_ssl_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 
+/*
+ * 处理starttls指令
+ * 参数:
+ *   cf: 配置上下文
+ *   cmd: 指令结构体
+ *   conf: 配置结构体
+ * 返回值:
+ *   配置处理结果
+ */
 static char *ngx_mail_ssl_starttls(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/*
+ * 处理ssl_password_file指令
+ * 参数:
+ *   cf: 配置上下文
+ *   cmd: 指令结构体
+ *   conf: 配置结构体
+ * 返回值:
+ *   配置处理结果
+ */
 static char *ngx_mail_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+
+/*
+ * 处理ssl_session_cache指令
+ * 参数:
+ *   cf: 配置上下文
+ *   cmd: 指令结构体
+ *   conf: 配置结构体
+ * 返回值:
+ *   配置处理结果
+ */
 static char *ngx_mail_ssl_session_cache(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
+/*
+ * 检查SSL配置命令
+ * 参数:
+ *   cf: 配置上下文
+ *   post: 后置处理函数
+ *   data: 配置数据
+ * 返回值:
+ *   配置检查结果
+ */
 static char *ngx_mail_ssl_conf_command_check(ngx_conf_t *cf, void *post,
     void *data);
 

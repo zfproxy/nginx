@@ -54,6 +54,18 @@ static ngx_int_t ngx_event_connect_set_transparent(ngx_peer_connection_t *pc,
 #endif
 
 
+/*
+ * 连接到上游服务器的函数
+ * 
+ * 参数:
+ * pc: 上游服务器连接对象
+ * 
+ * 返回值:
+ * NGX_OK: 连接成功
+ * NGX_ERROR: 连接失败
+ * NGX_BUSY: 连接忙
+ * NGX_DECLINED: 连接被拒绝
+ */
 ngx_int_t
 ngx_event_connect_peer(ngx_peer_connection_t *pc)
 {
@@ -61,13 +73,22 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
 #if (NGX_HAVE_IP_BIND_ADDRESS_NO_PORT || NGX_LINUX)
     in_port_t          port;
 #endif
+    // 事件类型
     ngx_int_t          event;
+    // 错误代码
     ngx_err_t          err;
+    // 日志级别
     ngx_uint_t         level;
+    // 套接字
     ngx_socket_t       s;
-    ngx_event_t       *rev, *wev;
+    // 读事件
+    ngx_event_t       *rev;
+    // 写事件
+    ngx_event_t       *wev;
+    // 连接对象
     ngx_connection_t  *c;
 
+    // 调用pc对象的get方法，参数为pc对象本身和pc对象的data成员
     rc = pc->get(pc, pc->data);
     if (rc != NGX_OK) {
         return rc;
@@ -186,38 +207,44 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
 
 #endif
 
+        // 尝试绑定套接字
         if (bind(s, pc->local->sockaddr, pc->local->socklen) == -1) {
+            // 如果绑定失败，记录错误日志
             ngx_log_error(NGX_LOG_CRIT, pc->log, ngx_socket_errno,
                           "bind(%V) failed", &pc->local->name);
 
+            // 跳转到失败处理
             goto failed;
         }
     }
 
+    // 根据套接字类型设置连接的接收和发送函数
     if (type == SOCK_STREAM) {
-        c->recv = ngx_recv;
-        c->send = ngx_send;
-        c->recv_chain = ngx_recv_chain;
-        c->send_chain = ngx_send_chain;
+        c->recv = ngx_recv; // 设置流式套接字的接收函数
+        c->send = ngx_send; // 设置流式套接字的发送函数
+        c->recv_chain = ngx_recv_chain; // 设置流式套接字的链式接收函数
+        c->send_chain = ngx_send_chain; // 设置流式套接字的链式发送函数
 
-        c->sendfile = 1;
+        c->sendfile = 1; // 默认启用发送文件功能
 
+        // 如果套接字地址族为AF_UNIX（即Unix域套接字）
         if (pc->sockaddr->sa_family == AF_UNIX) {
-            c->tcp_nopush = NGX_TCP_NOPUSH_DISABLED;
-            c->tcp_nodelay = NGX_TCP_NODELAY_DISABLED;
+            c->tcp_nopush = NGX_TCP_NOPUSH_DISABLED; // 禁用TCP_NOPUSH
+            c->tcp_nodelay = NGX_TCP_NODELAY_DISABLED; // 禁用TCP_NODELAY
 
+            // 如果是Solaris系统
 #if (NGX_SOLARIS)
-            /* Solaris's sendfilev() supports AF_NCA, AF_INET, and AF_INET6 */
-            c->sendfile = 0;
+            /* Solaris的sendfilev()支持AF_NCA, AF_INET, 和AF_INET6 */
+            c->sendfile = 0; // 对于Solaris系统，禁用发送文件功能
 #endif
         }
 
     } else { /* type == SOCK_DGRAM */
-        c->recv = ngx_udp_recv;
-        c->send = ngx_send;
-        c->send_chain = ngx_udp_send_chain;
+        c->recv = ngx_udp_recv; // 设置数据报套接字的接收函数
+        c->send = ngx_send; // 设置数据报套接字的发送函数
+        c->send_chain = ngx_udp_send_chain; // 设置数据报套接字的链式发送函数
 
-        c->need_flush_buf = 1;
+        c->need_flush_buf = 1; // 需要刷新缓冲区
     }
 
     c->log_error = pc->log_error;

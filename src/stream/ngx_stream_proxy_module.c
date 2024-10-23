@@ -1211,7 +1211,9 @@ ngx_stream_proxy_ssl_conf_command_check(ngx_conf_t *cf, void *post, void *data)
 #endif
 }
 
-
+/*
+ * 初始化SSL连接
+ */
 static void
 ngx_stream_proxy_ssl_init_connection(ngx_stream_session_t *s)
 {
@@ -1220,123 +1222,167 @@ ngx_stream_proxy_ssl_init_connection(ngx_stream_session_t *s)
     ngx_stream_upstream_t        *u;
     ngx_stream_proxy_srv_conf_t  *pscf;
 
+    // 获取上游连接
     u = s->upstream;
 
+    // 获取对等连接
     pc = u->peer.connection;
 
+    // 获取代理服务器配置
     pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
 
+    // 创建SSL连接
     if (ngx_ssl_create_connection(pscf->ssl, pc, NGX_SSL_BUFFER|NGX_SSL_CLIENT)
         != NGX_OK)
     {
+        // 如果创建失败，结束代理会话
         ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
     }
 
+    // 如果需要验证服务器名称或证书
     if (pscf->ssl_server_name || pscf->ssl_verify) {
+        // 检查服务器名称
         if (ngx_stream_proxy_ssl_name(s) != NGX_OK) {
+            // 如果检查失败，结束代理会话
             ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
             return;
         }
     }
 
+    // 如果有证书和密钥
     if (pscf->ssl_certificate
         && pscf->ssl_certificate->value.len
         && (pscf->ssl_certificate->lengths
             || pscf->ssl_certificate_key->lengths))
     {
+        // 处理证书
         if (ngx_stream_proxy_ssl_certificate(s) != NGX_OK) {
+            // 如果处理失败，结束代理会话
             ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
             return;
         }
     }
 
+    // 如果启用了SSL会话重用
     if (pscf->ssl_session_reuse) {
+        // 设置会话保存回调
         pc->ssl->save_session = ngx_stream_proxy_ssl_save_session;
 
+        // 设置会话
         if (u->peer.set_session(&u->peer, u->peer.data) != NGX_OK) {
+            // 如果设置失败，结束代理会话
             ngx_stream_proxy_finalize(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
             return;
         }
     }
 
+    // 设置日志动作
     s->connection->log->action = "SSL handshaking to upstream";
 
+    // 执行SSL握手
     rc = ngx_ssl_handshake(pc);
 
+    // 如果握手需要更多时间
     if (rc == NGX_AGAIN) {
 
+        // 如果写入定时器未设置，则设置定时器
         if (!pc->write->timer_set) {
             ngx_add_timer(pc->write, pscf->connect_timeout);
         }
 
+        // 设置SSL握手回调
         pc->ssl->handler = ngx_stream_proxy_ssl_handshake;
         return;
     }
 
+    // 执行SSL握手回调
     ngx_stream_proxy_ssl_handshake(pc);
 }
 
-
+/*
+ * ngx_stream_proxy_ssl_handshake函数处理SSL握手回调
+ * 参数：ngx_connection_t *pc，表示当前连接
+ */
 static void
 ngx_stream_proxy_ssl_handshake(ngx_connection_t *pc)
 {
-    long                          rc;
-    ngx_stream_session_t         *s;
-    ngx_stream_upstream_t        *u;
-    ngx_stream_proxy_srv_conf_t  *pscf;
+    long                          rc; // SSL握手返回的结果代码
+    ngx_stream_session_t         *s; // 当前流会话
+    ngx_stream_upstream_t        *u; // 上游服务器
+    ngx_stream_proxy_srv_conf_t  *pscf; // 代理服务器配置
 
+    // 获取当前流会话
     s = pc->data;
 
+    // 获取代理服务器配置
     pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
 
+    // 检查SSL握手是否完成
     if (pc->ssl->handshaked) {
 
+        // 如果启用了SSL证书验证
         if (pscf->ssl_verify) {
+            // 获取SSL握手的验证结果
             rc = SSL_get_verify_result(pc->ssl->connection);
 
+            // 如果验证失败
             if (rc != X509_V_OK) {
+                // 记录错误日志
                 ngx_log_error(NGX_LOG_ERR, pc->log, 0,
                               "upstream SSL certificate verify error: (%l:%s)",
                               rc, X509_verify_cert_error_string(rc));
+                // 跳转到失败处理
                 goto failed;
             }
 
+            // 获取上游服务器
             u = s->upstream;
 
+            // 检查SSL证书是否匹配主机名
             if (ngx_ssl_check_host(pc, &u->ssl_name) != NGX_OK) {
+                // 记录错误日志
                 ngx_log_error(NGX_LOG_ERR, pc->log, 0,
                               "upstream SSL certificate does not match \"%V\"",
                               &u->ssl_name);
+                // 跳转到失败处理
                 goto failed;
             }
         }
 
+        // 如果写入定时器已设置，则删除定时器
         if (pc->write->timer_set) {
             ngx_del_timer(pc->write);
         }
 
+        // 初始化上游服务器
         ngx_stream_proxy_init_upstream(s);
 
+        // 函数返回
         return;
     }
 
+    // 失败处理
 failed:
 
+    // 尝试下一个上游服务器
     ngx_stream_proxy_next_upstream(s);
 }
 
 
+/*
+ * 保存SSL会话
+ */
 static void
 ngx_stream_proxy_ssl_save_session(ngx_connection_t *c)
 {
-    ngx_stream_session_t   *s;
-    ngx_stream_upstream_t  *u;
+    ngx_stream_session_t   *s; // 当前会话
+    ngx_stream_upstream_t  *u; // 上游服务器
 
-    s = c->data;
-    u = s->upstream;
+    s = c->data; // 从连接获取会话数据
+    u = s->upstream; // 从会话获取上游服务器
 
-    u->peer.save_session(&u->peer, u->peer.data);
+    u->peer.save_session(&u->peer, u->peer.data); // 调用上游服务器的保存会话方法
 }
 
 
@@ -1984,7 +2030,7 @@ ngx_stream_proxy_process(ngx_stream_session_t *s, ngx_uint_t from_upstream,
     }
 }
 
-
+// 测试并最终化代理连接
 static ngx_int_t
 ngx_stream_proxy_test_finalize(ngx_stream_session_t *s,
     ngx_uint_t from_upstream)
@@ -1994,35 +2040,44 @@ ngx_stream_proxy_test_finalize(ngx_stream_session_t *s,
     ngx_stream_upstream_t        *u;
     ngx_stream_proxy_srv_conf_t  *pscf;
 
+    // 获取代理模块的服务器配置
     pscf = ngx_stream_get_module_srv_conf(s, ngx_stream_proxy_module);
 
+    // 获取连接和上游
     c = s->connection;
     u = s->upstream;
     pc = u->connected ? u->peer.connection : NULL;
 
+    // 如果是UDP连接
     if (c->type == SOCK_DGRAM) {
 
+        // 如果设置了请求次数限制且当前请求次数小于限制
         if (pscf->requests && u->requests < pscf->requests) {
             return NGX_DECLINED;
         }
 
+        // 如果设置了请求次数限制，删除UDP连接
         if (pscf->requests) {
             ngx_delete_udp_connection(c);
         }
 
+        // 如果设置了响应次数限制且当前响应次数小于限制
         if (pscf->responses == NGX_MAX_INT32_VALUE
             || u->responses < pscf->responses * u->requests)
         {
             return NGX_DECLINED;
         }
 
+        // 如果没有上游连接或者连接有缓冲数据
         if (pc == NULL || c->buffered || pc->buffered) {
             return NGX_DECLINED;
         }
 
+        // 保存日志处理函数并设置为NULL
         handler = c->log->handler;
         c->log->handler = NULL;
 
+        // 记录日志
         ngx_log_error(NGX_LOG_INFO, c->log, 0,
                       "udp done"
                       ", packets from/to client:%ui/%ui"
@@ -2031,15 +2086,17 @@ ngx_stream_proxy_test_finalize(ngx_stream_session_t *s,
                       u->requests, u->responses,
                       s->received, c->sent, u->received, pc ? pc->sent : 0);
 
+        // 恢复日志处理函数
         c->log->handler = handler;
 
+        // 最终化代理连接
         ngx_stream_proxy_finalize(s, NGX_STREAM_OK);
 
         return NGX_OK;
     }
 
-    /* c->type == SOCK_STREAM */
-
+    // 如果是TCP连接
+    // 检查是否有未完成的读取操作或缓冲数据
     if (pc == NULL
         || (!c->read->eof && !pc->read->eof)
         || (!c->read->eof && c->buffered)
@@ -2048,16 +2105,20 @@ ngx_stream_proxy_test_finalize(ngx_stream_session_t *s,
         return NGX_DECLINED;
     }
 
+    // 如果设置了半关闭，避免关闭活动连接直到两端都收到EOF
+    // 检查是否启用了半关闭功能
     if (pscf->half_close) {
-        /* avoid closing live connections until both read ends get EOF */
+        // 如果不是所有连接都已关闭并且没有缓冲数据，则返回NGX_DECLINED
         if (!(c->read->eof && pc->read->eof && !c->buffered && !pc->buffered)) {
              return NGX_DECLINED;
         }
     }
 
+    // 保存日志处理函数并设置为NULL
     handler = c->log->handler;
     c->log->handler = NULL;
 
+    // 记录日志
     ngx_log_error(NGX_LOG_INFO, c->log, 0,
                   "%s disconnected"
                   ", bytes from/to client:%O/%O"
@@ -2065,8 +2126,10 @@ ngx_stream_proxy_test_finalize(ngx_stream_session_t *s,
                   from_upstream ? "upstream" : "client",
                   s->received, c->sent, u->received, pc ? pc->sent : 0);
 
+    // 恢复日志处理函数
     c->log->handler = handler;
 
+    // 最终化代理连接
     ngx_stream_proxy_finalize(s, NGX_STREAM_OK);
 
     return NGX_OK;
